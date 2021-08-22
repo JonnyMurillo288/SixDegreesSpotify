@@ -1,12 +1,5 @@
 package main
 
-import (
-	"net/http"
-
-	"github.com/gorilla/mux"
-)
-
-
 /**********************************************
 Get the authorization for the client and send it to a file
 for communication with python scripts.
@@ -15,15 +8,15 @@ for communication with python scripts.
 
 **********************************************/
 
-package main
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"os"
+	"net/http"
+
+	"github.com/gorilla/mux"
 
 	"golang.org/x/oauth2"
 )
