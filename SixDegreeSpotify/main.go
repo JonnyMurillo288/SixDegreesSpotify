@@ -46,9 +46,6 @@ func main() {
 			g.AddEdge(sixdegrees.NewEdge(target, v, w))
 		}
 	}
-
-	saveDecoder((*g))
-
 	dij := sixdegrees.NewDijkstras(g, art)
 	for _, e := range dij.EdgeTo {
 		v := g.Keys[e.From()]
@@ -57,33 +54,3 @@ func main() {
 	}
 }
 
-// Create an ecoder file and save object.
-func saveDecoder(g sixdegrees.Graph) bool {
-	file,err := os.OpenFile("./weightedSpotifyGraph.gob",os.O_APPEND|os.O_WRONLY, os.ModeAppend)
-	if err != nil {
-		panic(err)
-	}
-	enc := gob.NewEncoder(file)
-	err = enc.Encode(g)
-	if err != nil {
-		log.Fatal("Encode:", err)
-		return false
-	}
-	return true
-}
-
-// Create a decoder and receive a value.
-func returnDecoder() sixdegrees.Graph {
-	file,err := os.Open("./weightedSpotifyGraph.gob")
-	if err != nil {
-		panic(err)
-	}
-
-	dec := gob.NewDecoder(file)
-	var g sixdegrees.Graph
-	err = dec.Decode(&g)
-	if err != nil {
-		log.Fatal("Decode:", err)
-	}
-	return g
-}
