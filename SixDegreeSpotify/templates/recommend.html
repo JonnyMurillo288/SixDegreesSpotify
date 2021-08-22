@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Recommended Playlists</title>
+<script type="text/javascript">
+window.onload = function () {
+    var conn;
+    var playlists = "{{ . }}"; // json object
+    var obj = JSON.parse(playlists);
+    var log = document.getElementById("log");
+    var track;
+    var pl;
+    var ind = 0;
+    var showed = new Map(); 
+    var button;
+
+    function getMapVal(map, key) {
+        return map.get(key) || 0;
+    }
+
+    function appendLog(item) {
+        var doScroll = log.scrollTop > log.scrollHeight - log.clientHeight - 1;
+        log.appendChild(item);
+        if (doScroll) {
+            log.scrollTop = log.scrollHeight - log.clientHeight;
+        }
+    }
+
+    function scrollTracks(key) {
+        pl = document.getElementById(key);
+        var lis = document.getElementById(key).getElementsByTagName("li");
+        var pos = document.getElementById("log").getElementsByTagName("img");
+        pl.removeChild(lis[0]);
+        log.removeChild(pos[0]);
+        var val = obj.Playlists[key];
+        console.log("The value of key:",key,"is",val)
+        listTracks(1,key,val);
+    }
+
+    function initList() {
+        for (let [key, value] of Object.entries(obj.Playlists)) {
+            // create a button object
+            button = document.createElement("button");
+            button.setAttribute("type","button");
+            button.setAttribute("value",key);
+            button.onclick = function() {
+                scrollTracks(this.value);
+            }
+            button.innerHTML = "Scroll";
+            appendLog(button);
+            var select = document.createElement("button");
+            select.setAttribute("type","button");
+            select.setAttribute("value",key);
+            select.onclick = function() {
+                startPlaying(this.value)
+            }
+            select.innerHTML = "Start listening!";
+            appendLog(select)
+            // create list object
+            console.log("Got map value of 0 for:",key);
+            pl = document.createElement("ul"); // playlists list
+            pl.setAttribute("id", key);
+            pl.onclick = function() {
+                // this function allows us to start playing the track 
+                // to our spotify
+                startPlaying(this.value);
+                return;
+            }
+            appendLog(pl);
+            pl.innerHTML = key;
+            console.log("Going to send to list tracks:",value);
+            listTracks(3,key,value);
+            
+        }
+    }
+
+    function listTracks(len, key, value) {
+        console.log("len:",len,"i:",getMapVal(showed,key))
+        var i = getMapVal(showed,key);
+        var max = i + len;
+        showed.set(key,getMapVal(showed,key));
+        pl = document.getElementById(key);
+        for (i; i < max; i++) {
+            console.log("loop:",i)
+            console.log("showed[key]:",showed.get(key));
+            showed.set(key,i+1);
+            if (getMapVal(showed,key) === value.length) {
+                showed.set(key,0);
+            }
+            track = document.createElement("li");
+            // debugger;
+            addPhoto(value[i].TrackPhoto,value[i].TrackName);
+            track.innerHTML = value[i].TrackName;
+            pl.appendChild(track);
+        } 
+    }
+
+    // redirects to the playlist that was made
+    // go function display playlists will redirect to playing.html 
+    // and will automatically get the tracks we need from Python
+    function startPlaying(key) {
+        conn.close(1000);
+        window.location.href = "http://" + window.location.host + "/recommend/" + key
+    }
+
+    function addPhoto(src,name) {
+        showPhoto(src,100,100,"Album Cover");
+    }
+
+    function showPhoto(src, width, height, alt) {
+        var img = document.createElement("img");
+        img.src = src;
+        img.width = width;
+        img.height = height;
+        img.alt = alt;
+        img.onerror = "this.onerror=null;this.src=https://dummyimage.com/100x100/000/fff";
+        appendLog(img);
+    }
+
+    if (window.WebSocket === undefined) {
+        var item = document.createElement("div");
+        item.innerHTML = "<b>Your browser does not support WebSockets.</b>";
+        appendLog(item);
+        return;
+    } else {
+        conn = new WebSocket("ws://" + document.location.host + "/ws");
+        // when the socket is open we send the playlists to the client
+        // server listens to clients actions on Spotify and updates playlist accordingly
+        conn.onopen = function (evt) {
+            // key = playlist name; value = [[trackname, trackphoto][trackname,trackphoto]]  
+            initList();
+        }
+        conn.onclose = function (evt) {
+            var item = document.createElement("div");
+            item.innerHTML = "<b>Connection closed.</b>";
+            appendLog(item);
+        };
+        // then the client selects the playlist they want
+        // server sends clients req to spotify API
+        conn.onmessage = function (evt) {
+            var messages = evt.data.split("\n");
+            conn.send(evt.data);
+        };
+    }
+};
+</script>
+<style type="text/css">
+    html {
+        overflow: hidden;
+    }
+    
+    body {
+        overflow: hidden;
+        padding: 0;
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: lightgray;
+    }
+    #log {
+    background: white;
+    margin: 0;
+    padding: 0.5em 0.5em 0.5em 0.5em;
+    position: absolute;
+    top: 2em;
+    left: 0.5em;
+    right: 0.5em;
+    bottom: 3em;
+    overflow: auto;
+    opacity: 0.7;
+}
+
+</style>
+</head>
+<body>
+<div id="log"></div>
+</body>
+</html>

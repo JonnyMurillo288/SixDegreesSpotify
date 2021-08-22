@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script type="text/javascript">
+window.onload = function() {
+    var conn;
+    var playlists = "{{ . }}"; // json object
+    var obj = JSON.parse(playlists);
+    var log = document.getElementById("log");
+    var player = document.getElementById("player"); 
+    var playing = document.getElementById("playing");
+    var trackName = document.getElementById('trackName');
+    var showed = new Map();
+    var msg;
+    var queue;
+    var playlistKey;
+
+
+    const backBtn = document.getElementById("back-btn")
+    const playBtn = document.getElementById("play-btn")
+    const skipBtn = document.getElementById("skip-btn")
+
+
+    const controller = () => {
+        console.log("controller has been executed", event.target.value);
+        conn.send(event.target.value);
+        if (event.target.value === "play"){
+            playBtn.setAttribute("value","pause")
+            playBtn.innerHTML = "||"
+        } else if (event.target.value === "pause") { 
+            playBtn.setAttribute("value","play")
+            playBtn.innerHTML = "^"
+        } else if (event.target.value === 'skip' || event.target.value === 'back') { // skip goes to the next track and adds to the queue
+            displayQueue();
+        }
+    }
+
+    backBtn.addEventListener('click',controller);
+    playBtn.addEventListener('click', controller);
+    skipBtn.addEventListener('click',controller);
+
+    function getMapVal(map, key) {
+        return map.get(key) || 1;
+    }
+
+    function addPhoto(src,num) {
+        if (num === 0) {
+            var width = 250;
+            var height = 250;
+        } else if (num === 1) {
+            var width = 225;
+            var height = 225;
+        } else {
+            var width = 200;
+            var height = 200;
+        }
+        return showPhoto(src,width,height,"Album Cover");
+    }
+
+    function showPhoto(src, width, height, alt) {
+        var img = document.createElement("img");
+        img.src = src;
+        img.width = width;
+        img.height = height;
+        img.alt = alt;
+        img.onerror = "this.onerror=null;this.src=https://dummyimage.com/100x100/000/fff";
+        return img;
+    }
+
+    function appendPlaying(item) {
+        if (playing.children.length === 3) {
+            playing.removeChild(playing.childNodes[0]);
+            var one = playing.children[0];
+            one.setAttribute("id", 'song-0')
+            var two = playing.children[1];
+            two.setAttribute('id','song-1')
+        }
+        playing.appendChild(item);
+    }
+
+    function resizePhoto(item) {
+        if (item.id === 'song-0') {
+            showPhoto(item.src,250,250,"Album Cover")
+        } else {
+            showPhoto(item.src,225,225,"Album Cover")
+        }
+        return item;
+    }
+
+
+    function appendLog(item) {
+        item = resizePhoto(item);
+        if (log.children.length === 3) {
+            log.removeChild(log.childNodes[0]);
+            var one = log.children[0];
+            one.setAttribute("id", "song-0");
+            var two = log.children[1];
+            two.setAttribute("id", "song-1");
+        }
+        var doScroll = log.scrollTop > log.scrollHeight - log.clientHeight - 1;
+        log.appendChild(item);
+        if (doScroll) {
+            log.scrollTop = log.scrollHeight - log.clientHeight;
+        }
+    }
+
+    function initList() {
+        for (let [key,value] of Object.entries(obj)) {
+            queue = value; // initialize the queue
+            playlistKey = key;
+            var item = JSON.parse(value);
+            var img = addPhoto(item[0].TrackPhoto,0);
+            console.log("Item for the init",item[0])
+            var li = document.createElement("div");
+            li.innerHTML = item[0].TrackName;
+            li.value = item[0].TrackID;
+            li.setAttribute("class","trackNames");
+            li.setAttribute('id','song-0');
+            img.setAttribute('id','song-0');
+            appendLog(img);
+            appendPlaying(li);
+            displayQueue(playlistKey);
+            displayQueue(playlistKey);
+        }
+    }
+
+    // function finds where we are at number wise in the queue
+    function displayQueue(key) {
+        var ind = getMapVal(showed,key);
+        var val = JSON.parse(queue);
+        var item = val[ind];
+        var li = document.createElement("div");
+        showed.set(key,ind+1);
+
+        var chLen = playing.children.length;
+        console.log("Item in the display for:",ind,item);
+        var img = addPhoto(item.TrackPhoto,chLen)
+        li.innerHTML = item.TrackName;
+        li.value = item.TrackID;
+        li.setAttribute("class","trackNames");
+        li.setAttribute('id','song-'+chLen.toString());
+        img.setAttribute('id','song-'+chLen.toString());
+        appendLog(img);
+        appendPlaying(li);
+        goQueue();
+    }
+
+    // displays whatever is currently playing on spotify
+    function displayCurrent(item) {
+        var curr = playing.children[0];
+        console.log("When running display current:",curr.innerText)
+        item = JSON.parse(item);
+        console.log(item.TrackName);
+        if (item.TrackName === curr.innerText) {
+            return;
+        // } else if (typeof item === undefined) { // if it is undefined we need to wait for the msg to be sent by the server
+        //     displayCurrent(msg);
+        // } 
+        } else {
+            console.log("Going to display queue",curr.innerText,"does not equal",item.TrackName);
+            displayQueue(playlistKey); // if it is a new track that is not displayed then we display the queue
+        }
+    }
+
+    // tells the go program to add the next song to the queue
+    function goQueue() {
+        conn.send('queue');
+    }
+
+    // get the playback from go function
+    // returns the queue object in json format
+    function listen() {
+        console.log("Listening to the users info :)");
+        conn.send("playback");
+        setTimeout(display,2000);
+    }
+
+    // display that is timedout to make sure we can return the msg from socket
+    function display() {
+        displayController(msg);
+        displayCurrent(msg);
+    }
+
+    // get the song timestamp/length, display a line that will show the progress
+    function displayController(item) {
+        console.log(item);
+        var p = parseFloat(item.Progress) / parseFloat(item.Duration)
+        var progress = document.getElementById("bar");
+        progress.setAttribute("value",p.toString());
+        console.log("Bars progress:",progress.value,progress.max)
+    }
+
+
+    if (window.WebSocket === undefined) {
+        var item = document.createElement("div");
+        item.innerHTML = "<b>Your browser does not support WebSockets.</b>";
+        appendLog(item);
+        return;
+    } else {
+        conn = new WebSocket("ws://" + document.location.host + "/ws");
+        conn.onopen = function (evt) {
+            initList();
+            console.log("setting the listen timeout")
+            setInterval(listen,4000);
+        };
+        conn.onclose = function (evt) {
+            var item = document.createElement("div");
+            item.innerHTML = "<b>Connection closed.</b>";
+            console.log(conn.closeEvent)
+            appendLog(item);
+        };
+        // the messages we will receive is in the form of a json file
+        // after we req data from go in respective function
+        // return the message back to the function
+        conn.onmessage = function (evt) {
+            console.log("Received a message from the server:",evt.data)
+            msg = JSON.parse(JSON.stringify(evt.data));
+        };
+    }
+
+}
+
+</script>
+<style type="text/css">
+html {
+    overflow: hidden;
+}
+
+body {
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: gray;
+}
+
+
+#player {
+    text-align: center;
+    padding: 0 0.5em 0 0.5em;
+    margin: 0;
+    position: absolute;
+    bottom: 1em;
+    left: 0px;
+    width: 100%;
+    overflow: hidden;
+}
+
+#log {
+    width:800px;
+    height:255px;
+    background-color:yellow;
+    position:relative;
+    text-align: center;
+    display:flex;
+}
+#playing {
+    width: 800px;
+    height: 40px;
+    min-height: 300px;
+    display: flex;
+    background: yellowgreen;
+    text-align: center;
+}
+#playing > .trackNames {
+    flex: 1;
+    column-gap: 2mm;
+
+}
+
+#song-0 {
+    display: flex;
+        justify-content: center;
+    align-items: center;
+}
+#song-1 {
+    float: right;
+    display: flex;
+    justify-content: center;
+    opacity: 69;
+}
+#song-2 {
+    float: left;
+    display: flex;
+    justify-content: center;
+    opacity: 50;
+}
+
+
+
+
+
+</style>
+</head>
+<div id="log"></div>
+<div id="playing"></div> 
+<div id="player">
+    <progress id="bar" max="100"></progress>
+    <button id="back-btn" value="back" ><-</button>
+    <button id="play-btn" value="pause">||</button>
+    <button id="skip-btn" value="skip" >-></button>
+</div>
+</html>
