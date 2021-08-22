@@ -16,11 +16,15 @@ func main() {
 	flag.StringVar(&start,"start","","Starting artist")
 	flag.StringVar(&find,"find","","Find artist from the starting artist")
 	flag.Parse()
+	if len(start) == 0 || len(find) == 0 {
+		fmt.Printf("Error with inputs for the start: %s or find:%s\nExiting!!\n",start,find)
+		os.Exit(1)
+	}
 
 	g := sixdegrees.NewGraph()
 
-	art := sixdegrees.InputArtist("lil wayne")
-	target := sixdegrees.InputArtist("YG")
+	art := sixdegrees.InputArtist(start)
+	target := sixdegrees.InputArtist(find)
 	albums, _ := spotify.ArtistAlbums(art.ID, 15)
 	h := sixdegrees.NewHelper()
 	for _, al := range art.ParseAlbums(albums) {
