@@ -1,8 +1,10 @@
 package main
 
 import (
-	"fmt"
+	"net/http"
 	"testing"
+
+	"github.com/gorilla/mux"
 )
 
 /**********************************************
@@ -35,7 +37,8 @@ TESTS:
 ***********************************************/
 
 /*
-Testing auth token and sending is to auth file
+ */
+// Testing auth token and sending is to auth file
 func TestAuth(t *testing.T) {
 	mx := mux.NewRouter()//.SkipClean(true)
 	mx.HandleFunc("/",HomePage)
@@ -43,7 +46,7 @@ func TestAuth(t *testing.T) {
 
 	http.ListenAndServe(":8392",mx)
 }
-*/
+
 
 /*
 Testing playback and currently playing
@@ -119,10 +122,10 @@ func TestGather(t *testing.T) {
 */
 
 /*
- */
-func TestReadPlaylists(t *testing.T) {
+//  */
+// func TestReadPlaylists(t *testing.T) {
 	
 	
-	fmt.Println(readPlaylist())
+// 	fmt.Println(readPlaylist())
 	
-}
+// }
