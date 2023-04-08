@@ -1,1 +1,1 @@
-# SixDegreeSpotify
+# SixDegreesSpotify
