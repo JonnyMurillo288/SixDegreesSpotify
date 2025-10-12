@@ -1,0 +1,56 @@
+# ======================= #
+#   SixDegreesSpotify     #
+# ======================= #
+
+# Go build artifacts
+*.exe
+*.app
+*.out
+*.o
+*.so
+*.a
+
+# Logs and runtime artifacts
+*.log
+*.tmp
+*.cache
+*.pid
+*.test
+testlogfile
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.qodo/
+
+# Authentication and secrets
+main/authConfig.txt
+main/authToken.txt
+main/command-line-arguments
+main/*.sample.json
+
+# Dependency/build dirs
+bin/
+pkg/
+vendor/
+
+# Local environment
+.env
+.env.*
+
+# Node/npm (if frontend added later)
+node_modules/
+dist/
+
+# Coverage and testing
+coverage.out
+*.coverprofile
+
+# Temporary or debugging outputs
+*.bak
+*.swp
+*.swo
+
+# Ignore hidden system folders
+.gitignore
