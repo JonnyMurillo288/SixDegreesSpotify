@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"time"
 
 	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
@@ -25,6 +28,11 @@ func main() {
 		fmt.Println("Missing required flags: -start and/or -find.")
 		fmt.Println(`Usage: go run main.go -start "Artist A" -find "Artist B" [-depth N] [-verbose]`)
 		os.Exit(1)
+	}
+
+	// Ensure Spotify authorization before making any API calls
+	if err := ensureSpotifyAuth(); err != nil {
+		log.Fatalf("Spotify authorization failed: %v", err)
 	}
 
 	// Look up start and target artists
@@ -80,4 +88,65 @@ func main() {
 		}
 	}
 	fmt.Println("\nDone.")
+}
+
+// ensureSpotifyAuth verifies valid token exists or triggers auth flow.
+func ensureSpotifyAuth() error {
+	// Ensure auth configuration exists
+	if _, err := os.Stat("./main/authConfig.txt"); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("missing ./main/authConfig.txt; copy and edit ./main/authConfig.sample.json with your Spotify app credentials")
+		}
+		return fmt.Errorf("failed to check authConfig.txt: %w", err)
+	}
+
+	// If token already valid, nothing to do
+	if _, ok := tokenValid("./main/authToken.txt"); ok {
+		return nil
+	}
+
+	// Start the local auth server
+	cmd := exec.Command("go", "run", "./main/auth.go")
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start auth server: %w", err)
+	}
+
+	// Attempt to open the browser for user authorization (best-effort)
+	_ = exec.Command("xdg-open", "http://localhost:8392/").Start()
+
+	// Wait for token to be created and become valid
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) {
+		if _, ok := tokenValid("./main/authToken.txt"); ok {
+			return nil
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return fmt.Errorf("timeout waiting for Spotify token; complete the authorization in your browser and retry")
+}
+
+// tokenValid parses the stored token and checks expiry safety window.
+func tokenValid(path string) (*spotify.Auth, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	var t spotify.Auth
+	if err := json.Unmarshal(b, &t); err != nil {
+		return nil, false
+	}
+	if t.AccessToken == "" {
+		return nil, false
+	}
+	if t.Expires == "" { // treat as non-expiring if missing
+		return &t, true
+	}
+	exp, err := time.Parse(time.RFC3339, t.Expires)
+	if err != nil {
+		return &t, true
+	}
+	if time.Now().After(exp.Add(-1 * time.Minute)) { // renew slightly early
+		return nil, false
+	}
+	return &t, true
 }
