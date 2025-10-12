@@ -15,6 +15,7 @@ import (
 )
 
 func main() {
+	startTime := time.Now().UTC().UnixNano()
 	var start, find string
 	var depth int
 	var verbose bool
@@ -88,6 +89,8 @@ func main() {
 			fmt.Printf("%d. %s → %s\n", i, from, to)
 		}
 	}
+	endTime := time.Now().UTC().UnixNano()
+	fmt.Println("Analysis took %s seconds", (endTime - startTime))
 	fmt.Println("\nDone.")
 }
 
@@ -125,7 +128,7 @@ func ensureSpotifyAuth() error {
 	readyDeadline := time.Now().Add(10 * time.Second)
 	var up bool
 	for time.Now().Before(readyDeadline) {
-		resp, err := client.Get("https://localhost:8392/")
+		resp, err := client.Get("http://localhost:8392/")
 		if err == nil {
 			if resp.Body != nil {
 				resp.Body.Close()

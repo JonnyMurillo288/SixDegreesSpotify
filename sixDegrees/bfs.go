@@ -1,6 +1,7 @@
 package sixdegrees
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -24,6 +25,30 @@ func NewHelper() *Helper {
 		Prev:      make(map[string]string),
 		Evidence:  make(map[string]string),
 	}
+}
+
+var albumCache = make(map[string][]byte)
+
+// This function checks if we have any cached albums and their respective tracks
+func fetchAlbumTracksCached(a *Artists, h *Helper, albumID string) ([]byte, error) {
+	// 1. check memory cache
+	if data, ok := albumCache[albumID]; ok {
+		fmt.Println("Got a cached Album for %s", a.Name)
+		return data, nil
+	}
+
+	// 2. call API
+	tracks, err := spotify.GetAlbumTracks(albumID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. store to cache as bytes (for reuse)
+	if data, err := json.Marshal(tracks); err == nil {
+		albumCache[albumID] = data
+	}
+
+	return tracks, nil
 }
 
 // RunSearchOpts performs a bounded/unbounded BFS search between artists.
@@ -104,12 +129,12 @@ func enrichArtist(a *Artists, h *Helper, verbose bool) error {
 	if verbose {
 		log.Printf("    Fetching albums/tracks for %s...", a.Name)
 	}
-	body, err := spotify.ArtistAlbums(a.ID, 10)
+	body, err := spotify.ArtistAlbums(a.ID, 5)
 	if err != nil {
 		return fmt.Errorf("albums fetch failed for %s: %w", a.Name, err)
 	}
 	for _, al := range a.ParseAlbums(body) {
-		tracks, err := spotify.GetAlbumTracks(al)
+		tracks, err := fetchAlbumTracksCached(a, h, al)
 		if err != nil {
 			continue
 		}

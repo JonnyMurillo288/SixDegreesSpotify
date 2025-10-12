@@ -175,8 +175,8 @@ func launchAuthFlow() error {
 		return fmt.Errorf("failed to start auth server: %w", err)
 	}
 	log.Println("Auth server started, opening browser…")
-	if err := exec.Command("xdg-open", "https://localhost:8392/").Start(); err != nil {
-		log.Printf("Please open https://localhost:8392/ manually: %v", err)
+	if err := exec.Command("xdg-open", "http://localhost:8392/").Start(); err != nil {
+		log.Printf("Please open http://localhost:8392/ manually: %v", err)
 	}
 	return nil
 }
@@ -220,6 +220,9 @@ func ArtistAlbums(id string, limit int) ([]byte, error) {
 		body, status, err := doRequest("GET", base, header, params)
 		if err != nil {
 			return nil, err
+		}
+		if status == 429 {
+			time.Sleep(300 * time.Millisecond)
 		}
 		if status < 200 || status >= 300 {
 			log.Printf("warning: ArtistAlbums non-2xx status=%d for id=%s", status, id)
