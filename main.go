@@ -125,7 +125,7 @@ func ensureSpotifyAuth() error {
 	readyDeadline := time.Now().Add(10 * time.Second)
 	var up bool
 	for time.Now().Before(readyDeadline) {
-		resp, err := client.Get("http://localhost:8392/")
+		resp, err := client.Get("https://localhost:8392/")
 		if err == nil {
 			if resp.Body != nil {
 				resp.Body.Close()

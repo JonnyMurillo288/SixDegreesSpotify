@@ -120,7 +120,7 @@ func main() {
 	router.HandleFunc("/", HomePage)
 	router.HandleFunc("/auth", Authorize)
 
-	fmt.Println("Server running on http://localhost:8392/")
+	fmt.Println("Server running on https://localhost:8392/")
 	if err := http.ListenAndServe(":8392", router); err != nil {
 		fmt.Println("Error starting server:", err)
 	}
