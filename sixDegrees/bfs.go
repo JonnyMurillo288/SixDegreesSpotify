@@ -59,8 +59,9 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool) (*Helper,
 
 	queue := []*Artists{start}
 	visited := map[string]bool{start.Name: true}
+	found := false
 
-	for len(queue) > 0 {
+	for len(queue) > 0 && !found {
 		current := queue[0]
 		queue = queue[1:]
 
@@ -73,27 +74,23 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool) (*Helper,
 			continue
 		}
 
-		// Expand each track
 		for _, tr := range current.Tracks {
-			// Direct artist match
 			if tr.Artist.Name == target.Name {
 				h.Prev[target.Name] = current.Name
 				h.Evidence[target.Name] = tr.Name
-				return h, h.ReconstructPath(start.Name, target.Name), true
+				found = true
+				break
 			}
 
 			for _, feat := range tr.Featured {
 				if feat.Name == "" || feat.Name == current.Name {
 					continue
 				}
-
-				// Already visited → skip
 				if visited[feat.Name] {
 					continue
 				}
 				visited[feat.Name] = true
 
-				// Record connection
 				h.Prev[feat.Name] = current.Name
 				h.Evidence[feat.Name] = tr.Name
 				h.DistTo[feat.Name] = h.DistTo[current.Name] + 1
@@ -104,27 +101,38 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool) (*Helper,
 				}
 
 				// Fetch this feature’s albums/tracks only once
-				if err := enrichArtist(feat, h, verbose); err != nil && verbose {
+				if err := enrichArtist(feat, h, target.Name, &found, verbose); err != nil && verbose {
 					log.Printf("    (warning: %v)", err)
+				}
+				if found {
+					break
 				}
 
 				// Check if target found among features’ tracks
 				if hasTarget(feat, target.Name) {
 					h.Prev[target.Name] = feat.Name
-					return h, h.ReconstructPath(start.Name, target.Name), true
+					found = true
+					break
 				}
 
 				queue = append(queue, feat)
 			}
+			if found {
+				break
+			}
 		}
+	}
+
+	if found {
+		return h, h.ReconstructPath(start.Name, target.Name), true
 	}
 	return h, nil, false
 }
 
 // Enrich artist data by fetching albums and tracks if not already populated.
-func enrichArtist(a *Artists, h *Helper, verbose bool) error {
-	if len(a.Tracks) > 0 {
-		return nil // already enriched
+func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose bool) error {
+	if len(a.Tracks) > 0 || *found {
+		return nil
 	}
 	if verbose {
 		log.Printf("    Fetching albums/tracks for %s...", a.Name)
@@ -140,6 +148,12 @@ func enrichArtist(a *Artists, h *Helper, verbose bool) error {
 		}
 		T, _ := a.CreateTracks(tracks, h)
 		a.Tracks = append(a.Tracks, T...)
+
+		// check if any of these tracks hit the target mid-fetch
+		if hasTarget(a, target) {
+			*found = true
+			return nil
+		}
 	}
 	time.Sleep(300 * time.Millisecond) // small delay to respect API rate limits
 	return nil

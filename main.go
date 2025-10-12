@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"time"
 
 	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
@@ -15,7 +16,7 @@ import (
 )
 
 func main() {
-	startTime := time.Now().UTC().UnixNano()
+	startTime := time.Now().UTC().Unix()
 	var start, find string
 	var depth int
 	var verbose bool
@@ -89,8 +90,8 @@ func main() {
 			fmt.Printf("%d. %s → %s\n", i, from, to)
 		}
 	}
-	endTime := time.Now().UTC().UnixNano()
-	fmt.Println("Analysis took %s seconds", (endTime - startTime))
+	endTime := time.Now().UTC().Unix()
+	fmt.Printf("Analysis took %s seconds", strconv.FormatInt(endTime-startTime, 10))
 	fmt.Println("\nDone.")
 }
 
