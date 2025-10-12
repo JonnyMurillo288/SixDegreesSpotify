@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"time"
@@ -92,10 +93,16 @@ func main() {
 
 // ensureSpotifyAuth verifies valid token exists or triggers auth flow.
 func ensureSpotifyAuth() error {
-	// Ensure auth configuration exists
-	if _, err := os.Stat("./main/authConfig.txt"); err != nil {
+	// Ensure auth configuration exists (bootstrap from sample if needed)
+	cfg := "./main/authConfig.txt"
+	if _, err := os.Stat(cfg); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("missing ./main/authConfig.txt; copy and edit ./main/authConfig.sample.json with your Spotify app credentials")
+			sample := "./main/authConfig.sample.json"
+			if b, rerr := os.ReadFile(sample); rerr == nil {
+				_ = os.WriteFile(cfg, b, 0o600)
+				return fmt.Errorf("created %s from sample; edit it with your Spotify credentials and re-run", cfg)
+			}
+			return fmt.Errorf("missing %s; create it with your Spotify app credentials", cfg)
 		}
 		return fmt.Errorf("failed to check authConfig.txt: %w", err)
 	}
@@ -107,9 +114,33 @@ func ensureSpotifyAuth() error {
 
 	// Start the local auth server
 	cmd := exec.Command("go", "run", "./main/auth.go")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start auth server: %w", err)
 	}
+
+	// Wait for the server to become reachable on localhost:8392
+	client := &http.Client{Timeout: 2 * time.Second}
+	readyDeadline := time.Now().Add(10 * time.Second)
+	var up bool
+	for time.Now().Before(readyDeadline) {
+		resp, err := client.Get("http://localhost:8392/")
+		if err == nil {
+			if resp.Body != nil {
+				resp.Body.Close()
+			}
+			up = true
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if !up {
+		return fmt.Errorf("authorization server did not start on http://localhost:8392; run `go run ./main/auth.go` manually to inspect errors")
+	}
+
+	fmt.Println("Spotify auth server is running on http://localhost:8392/")
+	fmt.Println("If your browser does not open automatically, visit the URL above to authorize.")
 
 	// Attempt to open the browser for user authorization (best-effort)
 	_ = exec.Command("xdg-open", "http://localhost:8392/").Start()
@@ -138,14 +169,17 @@ func tokenValid(path string) (*spotify.Auth, bool) {
 	if t.AccessToken == "" {
 		return nil, false
 	}
-	if t.Expires == "" { // treat as non-expiring if missing
-		return &t, true
+	if t.Expires == "" {
+		return nil, false
 	}
-	exp, err := time.Parse(time.RFC3339, t.Expires)
+	exp, err := time.Parse(time.RFC3339Nano, t.Expires)
 	if err != nil {
-		return &t, true
+		exp, err = time.Parse(time.RFC3339, t.Expires)
 	}
-	if time.Now().After(exp.Add(-1 * time.Minute)) { // renew slightly early
+	if err != nil {
+		return nil, false
+	}
+	if time.Now().After(exp.Add(-1 * time.Minute)) {
 		return nil, false
 	}
 	return &t, true

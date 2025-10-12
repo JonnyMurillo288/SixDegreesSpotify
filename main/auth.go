@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gorilla/mux"
 	"golang.org/x/oauth2"
@@ -49,13 +50,28 @@ func Authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if config == nil {
+		config = createConfig()
+	}
+
 	token, err := config.Exchange(context.Background(), code)
 	if err != nil {
 		http.Error(w, "Failed to exchange code for token: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	tokenJSON, err := json.MarshalIndent(token, "", "  ")
+	st := struct {
+		AccessToken string `json:"access_token"`
+		Type        string `json:"token_type"`
+		Refresh     string `json:"refresh_token"`
+		Expires     string `json:"expiry"`
+	}{
+		AccessToken: token.AccessToken,
+		Type:        token.TokenType,
+		Refresh:     token.RefreshToken,
+		Expires:     token.Expiry.Format(time.RFC3339Nano),
+	}
+	tokenJSON, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		http.Error(w, "Failed to marshal token", http.StatusInternalServerError)
 		return
