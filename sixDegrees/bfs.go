@@ -1,6 +1,7 @@
 package sixdegrees
 
 import (
+	"container/heap"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,6 +9,28 @@ import (
 
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
+
+// Priority queue for artists based on popularity
+type ArtistQueue []*Artists
+
+func (aq ArtistQueue) Len() int { return len(aq) }
+func (aq ArtistQueue) Less(i, j int) bool {
+	// Change < to > if you want more popular first
+	return aq[i].Popularity > aq[j].Popularity // More popular first
+}
+func (aq ArtistQueue) Swap(i, j int) { aq[i], aq[j] = aq[j], aq[i] }
+
+func (aq *ArtistQueue) Push(x interface{}) {
+	*aq = append(*aq, x.(*Artists))
+}
+
+func (aq *ArtistQueue) Pop() interface{} {
+	old := *aq
+	n := len(old)
+	item := old[n-1]
+	*aq = old[0 : n-1]
+	return item
+}
 
 // Helper tracks visited artists, distances, predecessor chain, and edge evidence.
 type Helper struct {
@@ -52,18 +75,19 @@ func fetchAlbumTracksCached(a *Artists, h *Helper, albumID string) ([]byte, erro
 }
 
 // RunSearchOpts performs a bounded/unbounded BFS search between artists.
-func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool) (*Helper, []string, bool) {
+func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *int) (*Helper, []string, bool) {
 	h := NewHelper()
 	h.ArtistMap[start.Name] = start
 	h.DistTo[start.Name] = 0
 
-	queue := []*Artists{start}
+	queue := &ArtistQueue{}
+	heap.Init(queue)
+	heap.Push(queue, start)
 	visited := map[string]bool{start.Name: true}
 	found := false
 
-	for len(queue) > 0 && !found {
-		current := queue[0]
-		queue = queue[1:]
+	for queue.Len() > 0 && !found {
+		current := heap.Pop(queue).(*Artists)
 
 		if verbose {
 			log.Printf("[Depth %d] Exploring %s (%d tracks)", h.DistTo[current.Name], current.Name, len(current.Tracks))
@@ -101,7 +125,7 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool) (*Helper,
 				}
 
 				// Fetch this feature’s albums/tracks only once
-				if err := enrichArtist(feat, h, target.Name, &found, verbose); err != nil && verbose {
+				if err := enrichArtist(feat, h, target.Name, &found, verbose, limit); err != nil && verbose {
 					log.Printf("    (warning: %v)", err)
 				}
 				if found {
@@ -115,7 +139,7 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool) (*Helper,
 					break
 				}
 
-				queue = append(queue, feat)
+				heap.Push(queue, feat)
 			}
 			if found {
 				break
@@ -130,7 +154,7 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool) (*Helper,
 }
 
 // Enrich artist data by fetching albums and tracks if not already populated.
-func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose bool) error {
+func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose bool, limit *int) error {
 	if len(a.Tracks) > 0 || *found {
 		return nil
 	}
@@ -141,7 +165,10 @@ func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose boo
 	if err != nil {
 		return fmt.Errorf("albums fetch failed for %s: %w", a.Name, err)
 	}
-	for _, al := range a.ParseAlbums(body) {
+	for i, al := range a.ParseAlbums(body) {
+		if i > 5 {
+			return nil
+		}
 		tracks, err := fetchAlbumTracksCached(a, h, al)
 		if err != nil {
 			continue

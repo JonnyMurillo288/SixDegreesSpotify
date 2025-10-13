@@ -20,11 +20,16 @@ func main() {
 	var start, find string
 	var depth int
 	var verbose bool
+	var limit int
+	var startID string
+	var switchingArtist bool
+	switchingArtist = false
 
 	flag.StringVar(&start, "start", "", "Starting artist name")
 	flag.StringVar(&find, "find", "", "Target artist name to find connection to")
 	flag.IntVar(&depth, "depth", -1, "Maximum BFS depth in hops (-1 for unlimited)")
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
+	flag.IntVar(&limit, "limit", 5, "Max Limit of albums to parse through")
 	flag.Parse()
 
 	if start == "" || find == "" {
@@ -43,13 +48,20 @@ func main() {
 	if startArtist == nil || startArtist.ID == "" {
 		log.Fatalf("Start artist %q not found on Spotify.", start)
 	}
+
 	targetArtist := sixdegrees.InputArtist(find)
 	if targetArtist == nil || targetArtist.ID == "" {
 		log.Fatalf("Target artist %q not found on Spotify.", find)
 	}
 
+	// Ensure startArtist is the *less popular* one
+	if startArtist.Popularity > targetArtist.Popularity {
+		switchingArtist = true
+		startArtist, targetArtist = targetArtist, startArtist
+	}
+
 	// Retrieve albums for the starting artist
-	albums, err := spotify.ArtistAlbums(startArtist.ID, 15)
+	albums, err := spotify.ArtistAlbums(startID, 15)
 	if err != nil {
 		log.Fatalf("Error fetching albums for %s: %v", startArtist.Name, err)
 	}
@@ -68,7 +80,7 @@ func main() {
 	}
 
 	// Run the connection search
-	helper, path, ok := sixdegrees.RunSearchOpts(startArtist, targetArtist, depth, verbose)
+	helper, path, ok := sixdegrees.RunSearchOpts(startArtist, targetArtist, depth, verbose, &limit)
 	if !ok || len(path) == 0 {
 		if depth >= 0 {
 			fmt.Printf("No path found between %q and %q within depth %d\n", startArtist.Name, targetArtist.Name, depth)
@@ -80,10 +92,17 @@ func main() {
 
 	// Display the found path
 	fmt.Printf("Path found between %q and %q (%d hops):\n\n", startArtist.Name, targetArtist.Name, len(path)-1)
+
+	if switchingArtist {
+		for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+			path[i], path[j] = path[j], path[i]
+		}
+	}
+
 	for i := 1; i < len(path); i++ {
 		from := path[i-1]
 		to := path[i]
-		track := helper.Evidence[to]
+		track := helper.Evidence[from]
 		if track != "" {
 			fmt.Printf("%d. %s —[%s]→ %s\n", i, from, track, to)
 		} else {
