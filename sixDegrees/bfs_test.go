@@ -16,7 +16,7 @@ func TestBFS_PathReconstruction(t *testing.T) {
 	C.Tracks = []Track{{Artist: C, Name: "t3", Featured: []*Artists{D}}}
 
 	// Use RunSearchOpts with no depth limit on the synthetic graph
-	helper, path, found := RunSearchOpts(A, D, -1, false)
+	helper, path, found := RunSearchOpts(A, D, -1, false, nil)
 	if !found {
 		t.Fatalf("expected to find path from A to D")
 	}
@@ -40,7 +40,7 @@ func TestBFS_DepthLimitStopsExpansion(t *testing.T) {
 	B.Tracks = []Track{{Artist: B, Name: "t2", Featured: []*Artists{C}}}
 
 	// Depth limit of 1 allows A->B but not B->C expansion
-	_, _, found := RunSearchOpts(A, C, 1, false)
+	_, _, found := RunSearchOpts(A, C, 1, false, nil)
 	if found {
 		t.Fatalf("did not expect to find C within depth 1")
 	}

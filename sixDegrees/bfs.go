@@ -201,7 +201,6 @@ func hasTarget(a *Artists, target string) bool {
 	return false
 }
 
-// ReconstructPath builds a start→target list using Prev map.
 func (h *Helper) ReconstructPath(start, target string) []string {
 	if start == "" || target == "" {
 		return nil
