@@ -10,9 +10,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
-
-	sixdegrees "https://github.com/JonnyMurillo288/SixDegreesSpotify/tree/main/sixDegrees"
+	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 )
 
 // Store wraps a sql.DB and exposes helpers for reading/writing artists, albums, and tracks.
