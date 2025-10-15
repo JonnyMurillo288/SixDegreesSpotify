@@ -11,14 +11,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/JonnyMurillo288/SixDegreesSpotify/db"
-
-	"github.com/Jonnymurillo288/SixDegreesSpotify/db"
 	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
-
-var x db.DBAlbum
 
 func main() {
 	startTime := time.Now().UTC().Unix()
@@ -76,6 +71,9 @@ func main() {
 	// The first layer of the queue will be the startArtist features
 	for _, album := range startArtist.ParseAlbums(albums) {
 		tracks, err := spotify.GetAlbumTracks(album)
+		for _, track := range tracks {
+			db.UpsertTrack(track)
+		}
 		if err != nil {
 			log.Printf("Warning: failed to fetch tracks for album %s: %v", album, err)
 			continue

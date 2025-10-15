@@ -7,7 +7,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/Jonnymurillo288/SixDegreesSpotify/db"
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
 
@@ -180,9 +179,6 @@ func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose boo
 		}
 		T, _ := a.CreateTracks(tracks, h)
 		a.Tracks = append(a.Tracks, T...)
-		for _, track := range T {
-			db.UpsertTrack(track)
-		}
 
 		// check if any of these tracks hit the target mid-fetch
 		if hasTarget(a, target) {
