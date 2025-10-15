@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/Jonnymurillo288/SixDegreesSpotify/db"
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
 
@@ -86,6 +87,8 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *in
 	visited := map[string]bool{start.Name: true}
 	found := false
 
+	// Functions for adding
+	// UpsertArtist, UpsertAlbum, UpsertTrack, AddTrackArtist, SaveArtistWithTracks
 	for queue.Len() > 0 && !found {
 		current := heap.Pop(queue).(*Artists)
 
@@ -153,6 +156,8 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *in
 	return h, nil, false
 }
 
+// Functions for adding
+// UpsertArtist, UpsertAlbum, UpsertTrack, AddTrackArtist, SaveArtistWithTracks
 // Enrich artist data by fetching albums and tracks if not already populated.
 func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose bool, limit *int) error {
 	if len(a.Tracks) > 0 || *found {
@@ -175,6 +180,9 @@ func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose boo
 		}
 		T, _ := a.CreateTracks(tracks, h)
 		a.Tracks = append(a.Tracks, T...)
+		for _, track := range T {
+			db.UpsertTrack(track)
+		}
 
 		// check if any of these tracks hit the target mid-fetch
 		if hasTarget(a, target) {
