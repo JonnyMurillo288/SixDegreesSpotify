@@ -23,6 +23,45 @@ type Store struct {
 	DB *sql.DB
 }
 
+// createDBTrack builds a DBTrack struct from a sixdegrees.Track
+func createDBTrack(t sixdegrees.Track, album string) DBTrack {
+	return DBTrack{
+		ID:              t.ID,
+		Name:            t.Name,
+		AlbumID:         sql.NullString{String: album, Valid: album != ""},
+		PrimaryArtistID: sql.NullString{String: t.Artist.ID, Valid: t.Artist.ID != ""},
+	}
+}
+
+// createDBAlbum builds a DBAlbum struct from Spotify album metadata
+func createDBAlbum(albumID, name, artist string) DBAlbum {
+	return DBAlbum{
+		ID:              albumID,
+		Name:            sql.NullString{String: name, Valid: name != ""},
+		PrimaryArtistID: sql.NullString{String: artist, Valid: artist != ""},
+	}
+}
+
+// createDBArtist converts a sixdegrees.Artist into a DBArtist record.
+func createDBArtist(a sixdegrees.Artists) DBArtist {
+	var genresJSON map[string]int
+
+	// If the source has genres as a slice, convert to a simple map[int]bool or map[string]int
+	if len(a.Genres) > 0 {
+		genresJSON = make(map[string]int, len(a.Genres))
+		for g := range a.Genres {
+			genresJSON[g] = 1
+		}
+	}
+
+	return DBArtist{
+		ID:         a.ID,
+		Name:       a.Name,
+		Popularity: sql.NullInt64{Int64: int64(a.Popularity), Valid: a.Popularity > 0},
+		Genres:     genresJSON,
+	}
+}
+
 // Open creates a DB connection using the given DSN. If dsn == "", it uses MYSQL_DSN or a sensible default.
 func Open(dsn string) (*Store, error) {
 	if dsn == "" {

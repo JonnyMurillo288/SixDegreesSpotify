@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,11 +12,27 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Jonnymurillo288/SixDegreesSpotify/db"
 	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
 
+func createDBTrack() {}
+
 func main() {
+
+	store, err := db.Open("")
+	if err != nil {
+		log.Fatalf("failed to connect: %v", err)
+	}
+	defer store.Close()
+
+	if err := store.Migrate(context.Background()); err != nil {
+		log.Fatalf("migration failed: %v", err)
+	}
+
+	log.Println("Database ready!")
+
 	startTime := time.Now().UTC().Unix()
 	var start, find string
 	var depth int
@@ -70,15 +87,24 @@ func main() {
 
 	// The first layer of the queue will be the startArtist features
 	for _, album := range startArtist.ParseAlbums(albums) {
-		tracks, err := spotify.GetAlbumTracks(album)
-		for _, track := range tracks {
-			db.UpsertTrack(track)
+		dba := db.createDBAlbum(album, startArtist.Name, startArtist.ID)
+		if err := store.UpsertAlbum(context.Background(), dba); err != nil {
+			log.Fatalf("Upsert failed: %v", err)
 		}
+
+		tracks, err := spotify.GetAlbumTracks(album)
 		if err != nil {
 			log.Printf("Warning: failed to fetch tracks for album %s: %v", album, err)
 			continue
 		}
 		t, _ := startArtist.CreateTracks(tracks, h)
+
+		for _, tr := range t {
+			track := db.createDBTrack(tr, album)
+			if err := store.UpsertTrack(context.Background(), track); err != nil {
+				log.Fatalf("Upsert failed: %v", err)
+			}
+		}
 		startArtist.Tracks = append(startArtist.Tracks, t...)
 	}
 
