@@ -2,6 +2,7 @@ package sixdegrees
 
 import (
 	"container/heap"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -75,7 +76,9 @@ func fetchAlbumTracksCached(a *Artists, h *Helper, albumID string) ([]byte, erro
 }
 
 // RunSearchOpts performs a bounded/unbounded BFS search between artists.
-func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *int) (*Helper, []string, bool) {
+func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *int, ctx context.Context) (*Helper, []string, bool) {
+	// Init the DB
+
 	h := NewHelper()
 	h.ArtistMap[start.Name] = start
 	h.DistTo[start.Name] = 0
@@ -125,7 +128,7 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *in
 				}
 
 				// Fetch this feature’s albums/tracks only once
-				if err := enrichArtist(feat, h, target.Name, &found, verbose, limit); err != nil && verbose {
+				if err := enrichArtist(feat, h, target.Name, &found, verbose, limit, ctx); err != nil && verbose {
 					log.Printf("    (warning: %v)", err)
 				}
 				if found {
@@ -154,34 +157,28 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *in
 }
 
 // Enrich artist data by fetching albums and tracks if not already populated.
-func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose bool, limit *int) error {
+func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose bool, limit *int, ctx context.Context) error {
 	if len(a.Tracks) > 0 || *found {
 		return nil
 	}
 	if verbose {
 		log.Printf("    Fetching albums/tracks for %s...", a.Name)
 	}
-	body, err := spotify.ArtistAlbums(a.ID, 5)
+	// Retrive from the database the Albums of the Artist
+	T, err := ListTracksByArtistID(ctx, a.ID, 10)
+
 	if err != nil {
 		return fmt.Errorf("albums fetch failed for %s: %w", a.Name, err)
 	}
-	for i, al := range a.ParseAlbums(body) {
-		if i > 5 {
-			return nil
-		}
-		tracks, err := fetchAlbumTracksCached(a, h, al)
-		if err != nil {
-			continue
-		}
-		T, _ := a.CreateTracks(tracks, h)
-		a.Tracks = append(a.Tracks, T...)
 
-		// check if any of these tracks hit the target mid-fetch
-		if hasTarget(a, target) {
-			*found = true
-			return nil
-		}
+	a.Tracks = append(a.Tracks, T...)
+
+	// check if any of these tracks hit the target mid-fetch
+	if hasTarget(a, target) {
+		*found = true
+		return nil
 	}
+
 	time.Sleep(300 * time.Millisecond) // small delay to respect API rate limits
 	return nil
 }

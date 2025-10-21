@@ -1,4 +1,4 @@
-package db
+package sixdegrees
 
 import (
 	"context"
@@ -11,8 +11,6 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-
-	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 )
 
 // Store wraps a sql.DB and exposes helpers for reading/writing artists, albums, and tracks.
@@ -193,7 +191,7 @@ func (s *Store) AddTrackArtist(ctx context.Context, trackID, artistID, role stri
 // - Upserts the primary artist with popularity and genres.
 // - Upserts each track and creates track_artists relations for primary and features.
 // - Upserts any discovered featured artists by their ID/Name if known (ID may be empty if not looked up yet).
-func (s *Store) SaveArtistWithTracks(ctx context.Context, a *sixdegrees.Artists) error {
+func (s *Store) SaveArtistWithTracks(ctx context.Context, a *Artists) error {
 	if a == nil || a.Name == "" {
 		return errors.New("artist required")
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -80,7 +81,7 @@ func main() {
 	}
 
 	// Run the connection search
-	helper, path, ok := sixdegrees.RunSearchOpts(startArtist, targetArtist, depth, verbose, &limit)
+	helper, path, ok := sixdegrees.RunSearchOpts(startArtist, targetArtist, depth, verbose, &limit, context.Background())
 	if !ok || len(path) == 0 {
 		if depth >= 0 {
 			fmt.Printf("No path found between %q and %q within depth %d\n", startArtist.Name, targetArtist.Name, depth)
