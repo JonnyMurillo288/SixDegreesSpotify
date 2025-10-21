@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,12 +13,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Jonnymurillo288/SixDegreesSpotify/db"
+	db "github.com/Jonnymurillo288/SixDegreesSpotify/db"
 	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
-
-func createDBTrack() {}
 
 func main() {
 
@@ -38,7 +37,6 @@ func main() {
 	var depth int
 	var verbose bool
 	var limit int
-	var startID string
 	var switchingArtist bool
 	switchingArtist = false
 
@@ -60,15 +58,40 @@ func main() {
 		log.Fatalf("Spotify authorization failed: %v", err)
 	}
 
-	// Look up start and target artists
+	// Create/Find Target Artist
+	// startArtist := db.FindArtistByName(context.Background(),start)
 	startArtist := sixdegrees.InputArtist(start)
 	if startArtist == nil || startArtist.ID == "" {
 		log.Fatalf("Start artist %q not found on Spotify.", start)
 	}
 
+	dba := db.DBArtist{
+		ID:         startArtist.ID,
+		Name:       startArtist.Name,
+		Popularity: sql.NullInt64{Int64: int64(startArtist.Popularity), Valid: startArtist.Popularity > 0},
+		Genres:     startArtist.Genres,
+	}
+
+	if err := store.UpsertArtist(context.Background(), dba); err != nil {
+		log.Fatalf("Upsert failed: %v", err)
+	}
+
+	// Create and Insert Target Artist to the Database if they do not exist in the current database
+	// targetArtist := db.FindArtistByName(context.Background(),find)
 	targetArtist := sixdegrees.InputArtist(find)
 	if targetArtist == nil || targetArtist.ID == "" {
 		log.Fatalf("Target artist %q not found on Spotify.", find)
+	}
+
+	dba = db.DBArtist{
+		ID:         targetArtist.ID,
+		Name:       targetArtist.Name,
+		Popularity: sql.NullInt64{Int64: int64(targetArtist.Popularity), Valid: targetArtist.Popularity > 0},
+		Genres:     targetArtist.Genres,
+	}
+
+	if err := store.UpsertArtist(context.Background(), dba); err != nil {
+		log.Fatalf("Upsert failed: %v", err)
 	}
 
 	// Ensure startArtist is the *less popular* one
@@ -78,7 +101,7 @@ func main() {
 	}
 
 	// Retrieve albums for the starting artist
-	albums, err := spotify.ArtistAlbums(startID, 15)
+	albums, err := spotify.ArtistAlbums(startArtist.ID, limit)
 	if err != nil {
 		log.Fatalf("Error fetching albums for %s: %v", startArtist.Name, err)
 	}
@@ -87,7 +110,11 @@ func main() {
 
 	// The first layer of the queue will be the startArtist features
 	for _, album := range startArtist.ParseAlbums(albums) {
-		dba := db.createDBAlbum(album, startArtist.Name, startArtist.ID)
+		dba := db.DBAlbum{
+			ID:              album,
+			PrimaryArtistID: sql.NullString{String: startArtist.ID, Valid: startArtist.ID != ""},
+		}
+
 		if err := store.UpsertAlbum(context.Background(), dba); err != nil {
 			log.Fatalf("Upsert failed: %v", err)
 		}
@@ -100,7 +127,12 @@ func main() {
 		t, _ := startArtist.CreateTracks(tracks, h)
 
 		for _, tr := range t {
-			track := db.createDBTrack(tr, album)
+			track := db.DBTrack{
+				ID:              tr.ID,
+				Name:            tr.Name,
+				AlbumID:         sql.NullString{String: album, Valid: album != ""},
+				PrimaryArtistID: sql.NullString{String: tr.Artist.ID, Valid: tr.Artist.ID != ""},
+			}
 			if err := store.UpsertTrack(context.Background(), track); err != nil {
 				log.Fatalf("Upsert failed: %v", err)
 			}
@@ -109,7 +141,11 @@ func main() {
 	}
 
 	// The second layer of the queue will be the targetArtist features
-	for _, album := range targetArtist.ParseAlbums(albums) {
+	targetAlbums, err := spotify.ArtistAlbums(targetArtist.ID, limit)
+	if err != nil {
+		log.Fatalf("Error fetching albums for %s: %v", targetArtist.Name, err)
+	}
+	for _, album := range targetArtist.ParseAlbums(targetAlbums) {
 		tracks, err := spotify.GetAlbumTracks(album)
 		if err != nil {
 			log.Printf("Warning: failed to fetch tracks for album %s: %v", album, err)

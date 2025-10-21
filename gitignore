@@ -29,6 +29,7 @@ main/authConfig.txt
 main/authToken.txt
 main/command-line-arguments
 main/*.sample.json
+docs/login_2_database.txt
 
 # Dependency/build dirs
 bin/
