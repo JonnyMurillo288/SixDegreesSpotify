@@ -3,12 +3,9 @@ package sixdegrees
 import (
 	"container/heap"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"time"
-
-	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
 
 // Priority queue for artists based on popularity
@@ -51,33 +48,19 @@ func NewHelper() *Helper {
 	}
 }
 
-var albumCache = make(map[string][]byte)
-
-// This function checks if we have any cached albums and their respective tracks
-func fetchAlbumTracksCached(a *Artists, h *Helper, albumID string) ([]byte, error) {
-	// 1. check memory cache
-	if data, ok := albumCache[albumID]; ok {
-		fmt.Println("Got a cached Album for %s", a.Name)
-		return data, nil
-	}
-
-	// 2. call API
-	tracks, err := spotify.GetAlbumTracks(albumID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. store to cache as bytes (for reuse)
-	if data, err := json.Marshal(tracks); err == nil {
-		albumCache[albumID] = data
-	}
-
-	return tracks, nil
-}
-
 // RunSearchOpts performs a bounded/unbounded BFS search between artists.
 func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *int, ctx context.Context) (*Helper, []string, bool) {
 	// Init the DB
+	store, err := Open("")
+	if err != nil {
+		fmt.Println("Error with opening the DB")
+	}
+
+	defer store.Close()
+
+	if err := store.Migrate(context.Background()); err != nil {
+		log.Fatalf("migration failed: %v", err)
+	}
 
 	h := NewHelper()
 	h.ArtistMap[start.Name] = start
@@ -128,7 +111,7 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *in
 				}
 
 				// Fetch this feature’s albums/tracks only once
-				if err := enrichArtist(feat, h, target.Name, &found, verbose, limit, ctx); err != nil && verbose {
+				if err := enrichArtist(feat, h, target.Name, &found, verbose, limit, ctx, store); err != nil && verbose {
 					log.Printf("    (warning: %v)", err)
 				}
 				if found {
@@ -157,7 +140,7 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *in
 }
 
 // Enrich artist data by fetching albums and tracks if not already populated.
-func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose bool, limit *int, ctx context.Context) error {
+func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose bool, limit *int, ctx context.Context, store *Store) error {
 	if len(a.Tracks) > 0 || *found {
 		return nil
 	}
@@ -165,13 +148,29 @@ func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose boo
 		log.Printf("    Fetching albums/tracks for %s...", a.Name)
 	}
 	// Retrive from the database the Albums of the Artist
-	T, err := ListTracksByArtistID(ctx, a.ID, 10)
+	T, err := store.ListTracksByArtistID(ctx, a.ID, 10)
 
 	if err != nil {
 		return fmt.Errorf("albums fetch failed for %s: %w", a.Name, err)
 	}
 
-	a.Tracks = append(a.Tracks, T...)
+	for _, t := range T {
+		art, err := store.FindArtistByName(context.Background(), t.Name)
+
+		if err != nil {
+			fmt.Println("Error with finding the artist")
+		}
+
+		artist := CreateArtists(art.Name, art.ID)
+
+		tr := Track{
+			Artist:   artist,
+			Name:     t.Name,
+			PhotoURL: "",
+			ID:       t.ID,
+		}
+		a.Tracks = append(a.Tracks, tr)
+	}
 
 	// check if any of these tracks hit the target mid-fetch
 	if hasTarget(a, target) {
