@@ -1,17 +1,19 @@
-package sixdegrees
+package main
 
 import (
 	"container/heap"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"time"
 
+	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
 
 // Priority queue for artists based on popularity
-type ArtistQueue []*Artists
+type ArtistQueue []*sixdegrees.Artists
 
 func (aq ArtistQueue) Len() int { return len(aq) }
 func (aq ArtistQueue) Less(i, j int) bool {
@@ -21,7 +23,7 @@ func (aq ArtistQueue) Less(i, j int) bool {
 func (aq ArtistQueue) Swap(i, j int) { aq[i], aq[j] = aq[j], aq[i] }
 
 func (aq *ArtistQueue) Push(x interface{}) {
-	*aq = append(*aq, x.(*Artists))
+	*aq = append(*aq, x.(*sixdegrees.Artists))
 }
 
 func (aq *ArtistQueue) Pop() interface{} {
@@ -32,28 +34,11 @@ func (aq *ArtistQueue) Pop() interface{} {
 	return item
 }
 
-// Helper tracks visited artists, distances, predecessor chain, and edge evidence.
-type Helper struct {
-	ArtistMap map[string]*Artists // visited artists by name
-	DistTo    map[string]int      // distance (hops)
-	Prev      map[string]string   // predecessor chain
-	Evidence  map[string]string   // track name connecting Prev[x] -> x
-}
-
-// NewHelper initializes an empty BFS helper
-func NewHelper() *Helper {
-	return &Helper{
-		ArtistMap: make(map[string]*Artists),
-		DistTo:    make(map[string]int),
-		Prev:      make(map[string]string),
-		Evidence:  make(map[string]string),
-	}
-}
-
 var albumCache = make(map[string][]byte)
+var store *Store
 
 // This function checks if we have any cached albums and their respective tracks
-func fetchAlbumTracksCached(a *Artists, h *Helper, albumID string) ([]byte, error) {
+func fetchAlbumTracksCached(a *sixdegrees.Artists, h *sixdegrees.Helper, albumID string) ([]byte, error) {
 	// 1. check memory cache
 	if data, ok := albumCache[albumID]; ok {
 		fmt.Println("Got a cached Album for %s", a.Name)
@@ -75,8 +60,8 @@ func fetchAlbumTracksCached(a *Artists, h *Helper, albumID string) ([]byte, erro
 }
 
 // RunSearchOpts performs a bounded/unbounded BFS search between artists.
-func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *int) (*Helper, []string, bool) {
-	h := NewHelper()
+func RunSearchOpts(start, target *sixdegrees.Artists, maxDepth int, verbose bool, limit *int) (*sixdegrees.Helper, []string, bool) {
+	h := sixdegrees.NewHelper()
 	h.ArtistMap[start.Name] = start
 	h.DistTo[start.Name] = 0
 
@@ -89,7 +74,7 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *in
 	// Functions for adding
 	// UpsertArtist, UpsertAlbum, UpsertTrack, AddTrackArtist, SaveArtistWithTracks
 	for queue.Len() > 0 && !found {
-		current := heap.Pop(queue).(*Artists)
+		current := heap.Pop(queue).(*sixdegrees.Artists)
 
 		if verbose {
 			log.Printf("[Depth %d] Exploring %s (%d tracks)", h.DistTo[current.Name], current.Name, len(current.Tracks))
@@ -158,17 +143,25 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, limit *in
 // Functions for adding
 // UpsertArtist, UpsertAlbum, UpsertTrack, AddTrackArtist, SaveArtistWithTracks
 // Enrich artist data by fetching albums and tracks if not already populated.
-func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose bool, limit *int) error {
+func enrichArtist(a *sixdegrees.Artists, h *sixdegrees.Helper, target string, found *bool, verbose bool, limit *int) error {
 	if len(a.Tracks) > 0 || *found {
 		return nil
 	}
 	if verbose {
 		log.Printf("    Fetching albums/tracks for %s...", a.Name)
 	}
-	body, err := spotify.ArtistAlbums(a.ID, 5)
+	body, err := spotify.ArtistAlbums(a.ID, 15)
 	if err != nil {
 		return fmt.Errorf("albums fetch failed for %s: %w", a.Name, err)
 	}
+
+	// Upsert the Artist
+	dba := createDBArtist(*a)
+	err = store.UpsertArtist(context.Background(), dba)
+	if err != nil {
+		fmt.Printf("Error upserting %s", a.Name)
+	}
+
 	for i, al := range a.ParseAlbums(body) {
 		if i > 5 {
 			return nil
@@ -178,6 +171,14 @@ func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose boo
 			continue
 		}
 		T, _ := a.CreateTracks(tracks, h)
+		for _, t := range T {
+			dba := createDBTrack(t, al)
+			err = store.UpsertTrack(context.Background(), dba)
+			if err != nil {
+				fmt.Printf("Error upserting Track: %s", t.Name)
+			}
+		}
+
 		a.Tracks = append(a.Tracks, T...)
 
 		// check if any of these tracks hit the target mid-fetch
@@ -191,7 +192,7 @@ func enrichArtist(a *Artists, h *Helper, target string, found *bool, verbose boo
 }
 
 // Utility to check if any track by this artist matches the target
-func hasTarget(a *Artists, target string) bool {
+func hasTarget(a *sixdegrees.Artists, target string) bool {
 	for _, t := range a.Tracks {
 		if t.Artist.Name == target {
 			return true
@@ -203,27 +204,4 @@ func hasTarget(a *Artists, target string) bool {
 		}
 	}
 	return false
-}
-
-func (h *Helper) ReconstructPath(start, target string) []string {
-	if start == "" || target == "" {
-		return nil
-	}
-	cur := target
-	var path []string
-	for cur != "" {
-		path = append(path, cur)
-		if cur == start {
-			break
-		}
-		cur = h.Prev[cur]
-		if cur == "" {
-			return nil
-		}
-	}
-	// reverse
-	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
-		path[i], path[j] = path[j], path[i]
-	}
-	return path
 }

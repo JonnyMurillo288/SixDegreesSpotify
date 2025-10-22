@@ -13,14 +13,13 @@ import (
 	"strconv"
 	"time"
 
-	db "github.com/Jonnymurillo288/SixDegreesSpotify/db"
 	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
 
 func main() {
 
-	store, err := db.Open("")
+	store, err := Open("")
 	if err != nil {
 		log.Fatalf("failed to connect: %v", err)
 	}
@@ -59,13 +58,13 @@ func main() {
 	}
 
 	// Create/Find Target Artist
-	// startArtist := db.FindArtistByName(context.Background(),start)
+	// startArtist := FindArtistByName(context.Background(),start)
 	startArtist := sixdegrees.InputArtist(start)
 	if startArtist == nil || startArtist.ID == "" {
 		log.Fatalf("Start artist %q not found on Spotify.", start)
 	}
 
-	dba := db.DBArtist{
+	dba := DBArtist{
 		ID:         startArtist.ID,
 		Name:       startArtist.Name,
 		Popularity: sql.NullInt64{Int64: int64(startArtist.Popularity), Valid: startArtist.Popularity > 0},
@@ -77,13 +76,13 @@ func main() {
 	}
 
 	// Create and Insert Target Artist to the Database if they do not exist in the current database
-	// targetArtist := db.FindArtistByName(context.Background(),find)
+	// targetArtist := FindArtistByName(context.Background(),find)
 	targetArtist := sixdegrees.InputArtist(find)
 	if targetArtist == nil || targetArtist.ID == "" {
 		log.Fatalf("Target artist %q not found on Spotify.", find)
 	}
 
-	dba = db.DBArtist{
+	dba = DBArtist{
 		ID:         targetArtist.ID,
 		Name:       targetArtist.Name,
 		Popularity: sql.NullInt64{Int64: int64(targetArtist.Popularity), Valid: targetArtist.Popularity > 0},
@@ -110,7 +109,7 @@ func main() {
 
 	// The first layer of the queue will be the startArtist features
 	for _, album := range startArtist.ParseAlbums(albums) {
-		dba := db.DBAlbum{
+		dba := DBAlbum{
 			ID:              album,
 			PrimaryArtistID: sql.NullString{String: startArtist.ID, Valid: startArtist.ID != ""},
 		}
@@ -127,7 +126,7 @@ func main() {
 		t, _ := startArtist.CreateTracks(tracks, h)
 
 		for _, tr := range t {
-			track := db.DBTrack{
+			track := DBTrack{
 				ID:              tr.ID,
 				Name:            tr.Name,
 				AlbumID:         sql.NullString{String: album, Valid: album != ""},
@@ -156,7 +155,7 @@ func main() {
 	}
 
 	// Run the connection search
-	helper, path, ok := sixdegrees.RunSearchOpts(startArtist, targetArtist, depth, verbose, &limit)
+	helper, path, ok := RunSearchOpts(startArtist, targetArtist, depth, verbose, &limit)
 	if !ok || len(path) == 0 {
 		if depth >= 0 {
 			fmt.Printf("No path found between %q and %q within depth %d\n", startArtist.Name, targetArtist.Name, depth)

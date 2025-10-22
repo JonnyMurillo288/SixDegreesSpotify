@@ -37,6 +37,47 @@ type albumResponse struct {
 	} `json:"items"`
 }
 
+// Helper tracks visited artists, distances, predecessor chain, and edge evidence.
+type Helper struct {
+	ArtistMap map[string]*Artists // visited artists by name
+	DistTo    map[string]int      // distance (hops)
+	Prev      map[string]string   // predecessor chain
+	Evidence  map[string]string   // track name connecting Prev[x] -> x
+}
+
+// NewHelper initializes an empty BFS helper
+func NewHelper() *Helper {
+	return &Helper{
+		ArtistMap: make(map[string]*Artists),
+		DistTo:    make(map[string]int),
+		Prev:      make(map[string]string),
+		Evidence:  make(map[string]string),
+	}
+}
+
+func (h *Helper) ReconstructPath(start, target string) []string {
+	if start == "" || target == "" {
+		return nil
+	}
+	cur := target
+	var path []string
+	for cur != "" {
+		path = append(path, cur)
+		if cur == start {
+			break
+		}
+		cur = h.Prev[cur]
+		if cur == "" {
+			return nil
+		}
+	}
+	// reverse
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
+	}
+	return path
+}
+
 // newTrack builds a Track safely
 func newTrack(art *Artists, name, photo, id string, feat []*Artists) Track {
 	return Track{
