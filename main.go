@@ -17,9 +17,36 @@ import (
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
 
+// This helper is an easy to save in DB
+// This will be just a singluar row in our database for easy search if there is a path
+type MainHelper struct {
+	ArtistID         string
+	ArtistName       string
+	FeaturedID       string
+	FeaturedName     string
+	TrackIDLink      string
+	PopularityWeight int16
+}
+
+func createMainHelper(artist sixdegrees.Artists, track sixdegrees.Track) MainHelper {
+	var feat *sixdegrees.Artists
+	if len(track.Featured) > 0 {
+		feat = track.Featured[0]
+	}
+	ret := MainHelper{
+		ArtistID:         artist.ID,
+		ArtistName:       artist.Name,
+		FeaturedID:       feat.ID,
+		FeaturedName:     feat.Name,
+		TrackIDLink:      track.ID,
+		PopularityWeight: int16(artist.Popularity+track.Artist.Popularity) / 2,
+	}
+	return ret
+}
+
 func main() {
 
-	store, err := Open("")
+	var store, err = Open("")
 	if err != nil {
 		log.Fatalf("failed to connect: %v", err)
 	}

@@ -35,13 +35,15 @@ func (aq *ArtistQueue) Pop() interface{} {
 }
 
 var albumCache = make(map[string][]byte)
+
+// global store pointer is defined in this package and set in main.go
 var store *Store
 
 // This function checks if we have any cached albums and their respective tracks
 func fetchAlbumTracksCached(a *sixdegrees.Artists, h *sixdegrees.Helper, albumID string) ([]byte, error) {
 	// 1. check memory cache
 	if data, ok := albumCache[albumID]; ok {
-		fmt.Println("Got a cached Album for %s", a.Name)
+		fmt.Printf("Got a cached Album for %s", a.Name)
 		return data, nil
 	}
 
@@ -150,20 +152,27 @@ func enrichArtist(a *sixdegrees.Artists, h *sixdegrees.Helper, target string, fo
 	if verbose {
 		log.Printf("    Fetching albums/tracks for %s...", a.Name)
 	}
-	body, err := spotify.ArtistAlbums(a.ID, 15)
+	// honor provided limit if set; default to 15
+	albumLimit := 15
+	if limit != nil && *limit > 0 {
+		albumLimit = *limit
+	}
+	body, err := spotify.ArtistAlbums(a.ID, albumLimit)
 	if err != nil {
 		return fmt.Errorf("albums fetch failed for %s: %w", a.Name, err)
 	}
 
-	// Upsert the Artist
-	dba := createDBArtist(*a)
-	err = store.UpsertArtist(context.Background(), dba)
-	if err != nil {
-		fmt.Printf("Error upserting %s", a.Name)
+	// Upsert the Artist if store is available
+	if store != nil {
+		dba := createDBArtist(*a)
+		if err := store.UpsertArtist(context.Background(), dba); err != nil && verbose {
+			log.Printf("    warning: error upserting artist %s: %v", a.Name, err)
+		}
 	}
 
+	// cap iterations by albumLimit as well
 	for i, al := range a.ParseAlbums(body) {
-		if i > 5 {
+		if i >= albumLimit {
 			return nil
 		}
 		tracks, err := fetchAlbumTracksCached(a, h, al)
@@ -171,11 +180,28 @@ func enrichArtist(a *sixdegrees.Artists, h *sixdegrees.Helper, target string, fo
 			continue
 		}
 		T, _ := a.CreateTracks(tracks, h)
-		for _, t := range T {
-			dba := createDBTrack(t, al)
-			err = store.UpsertTrack(context.Background(), dba)
-			if err != nil {
-				fmt.Printf("Error upserting Track: %s", t.Name)
+		if store != nil {
+			for _, t := range T {
+				dba := createDBTrack(t, al) // store the track
+				if err := store.UpsertTrack(context.Background(), dba); err != nil && verbose {
+					log.Printf("warning: error upserting track %s: %v", t.Name, err)
+				}
+				// store the main artist
+				if err := store.AddTrackArtist(context.Background(), t.ID, t.Artist.ID, "primary"); err != nil && verbose {
+					log.Printf("warning: error upserting artist_track for %s: %v", t.Artist.Name, err)
+				}
+				// if there is a featured, store featured, then link the featured to the main
+				if len(t.Featured) > 0 {
+					for _, art := range t.Featured {
+						dba := createDBArtist(*art)
+						if err := store.UpsertArtist(context.Background(), dba); err != nil && verbose {
+							log.Printf("warning: error upserting track %s: %v", art.Name, err)
+						}
+						if err := store.AddTrackArtist(context.Background(), t.ID, art.ID, "featured"); err != nil && verbose {
+							log.Printf("warning: error upserting artist_track for %s: %v", art.Name, err)
+						}
+					}
+				}
 			}
 		}
 

@@ -16,7 +16,7 @@ func TestBFS_PathReconstruction(t *testing.T) {
 	C.Tracks = []Track{{Artist: C, Name: "t3", Featured: []*Artists{D}}}
 
 	// Use RunSearchOpts with no depth limit on the synthetic graph
-	helper, path, found := RunSearchOpts(A, D, -1, false, nil)
+	_, path, found := RunSearchOpts(A, D, -1, false, nil)
 	if !found {
 		t.Fatalf("expected to find path from A to D")
 	}

@@ -135,6 +135,15 @@ func (s *Store) Migrate(ctx context.Context) error {
 			FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE ON UPDATE CASCADE,
 			FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE ON UPDATE CASCADE
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+		`CREATE TABLE MainHelper (
+			ArtistID VARCHAR(50) NOT NULL,
+			ArtistName VARCHAR(255),
+			FeaturedID VARCHAR(50),
+			FeaturedName VARCHAR(255),
+			TrackIDLink VARCHAR(50),
+			PopularityWeight SMALLINT,
+			PRIMARY KEY (ArtistID, TrackIDLink)
+		);`,
 	}
 	for _, q := range stmts {
 		if _, err := s.DB.ExecContext(ctx, q); err != nil {
@@ -182,6 +191,31 @@ func (s *Store) UpsertArtist(ctx context.Context, a DBArtist) error {
 		VALUES (?,?,?,?)
 		ON DUPLICATE KEY UPDATE name=VALUES(name), popularity=VALUES(popularity), genres=VALUES(genres)`
 	_, err := s.DB.ExecContext(ctx, q, a.ID, a.Name, nullInt(a.Popularity), genresJSON)
+	return err
+}
+
+func (s *Store) UpsertGraph(ctx context.Context, mh MainHelper) error {
+	if mh.ArtistID == "" || mh.TrackIDLink == "" {
+		return errors.New("artist id and track id required")
+	}
+
+	q := `INSERT INTO MainHelper 
+			(ArtistID, ArtistName, FeaturedID, FeaturedName, TrackIDLink, PopularityWeight)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			ArtistName = VALUES(ArtistName),
+			FeaturedID = VALUES(FeaturedID),
+			FeaturedName = VALUES(FeaturedName),
+			PopularityWeight = VALUES(PopularityWeight)`
+
+	_, err := s.DB.ExecContext(ctx, q,
+		mh.ArtistID,
+		mh.ArtistName,
+		mh.FeaturedID,
+		mh.FeaturedName,
+		mh.TrackIDLink,
+		mh.PopularityWeight,
+	)
 	return err
 }
 

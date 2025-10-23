@@ -1,179 +1,166 @@
 package main
 
-// import (
-// 	"encoding/json"
-// 	"fmt"
-// 	"log"
-// 	"math/rand"
-// 	"net/http"
-// 	"net/url"
-// 	"os"
-// 	"os/exec"
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"strconv"
+	"time"
 
-// 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
-// )
+	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
+)
 
-// const (
-// 	tokenURL             = "https://accounts.spotify.com/api/token"
-// 	genreSeedsURL        = "https://api.spotify.com/v1/recommendations/available-genre-seeds"
-// 	recommendationsURL   = "https://api.spotify.com/v1/recommendations"
-// 	defaultArtistSamples = 10
-// )
+// This is a parallel main function that utilizes the database instead of searching
+// the Spotify API. For testing and eventually searching only here
+func MainDB() {
 
-// type genreSeedsResp struct {
-// 	Genres []string `json:"genres"`
-// }
+	var store, err = Open("")
+	if err != nil {
+		log.Fatalf("failed to connect: %v", err)
+	}
+	defer store.Close()
 
-// type recommendationsResp struct {
-// 	Tracks []struct {
-// 		ID      string `json:"id"`
-// 		Name    string `json:"name"`
-// 		Artists []struct {
-// 			ID   string `json:"id"`
-// 			Name string `json:"name"`
-// 		} `json:"artists"`
-// 	} `json:"tracks"`
-// }
+	if err := store.Migrate(context.Background()); err != nil {
+		log.Fatalf("migration failed: %v", err)
+	}
 
-// var auth *spotify.Auth
+	log.Println("Database ready!")
 
-// // ===== Main =====
+	startTime := time.Now().UTC().Unix()
+	var start, find string
+	var depth int
+	var verbose bool
+	var limit int
+	var switchingArtist bool
+	switchingArtist = false
 
-// func Gather() {
-// 	var name1, name2 string
-// 	// Ensure Spotify authorization before making any API calls
-// 	if err := ensureSpotifyAuth(); err != nil {
-// 		log.Fatalf("Spotify authorization failed: %v", err)
-// 	}
+	flag.StringVar(&start, "start", "", "Starting artist name")
+	flag.StringVar(&find, "find", "", "Target artist name to find connection to")
+	flag.IntVar(&depth, "depth", -1, "Maximum BFS depth in hops (-1 for unlimited)")
+	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
+	flag.IntVar(&limit, "limit", 5, "Max Limit of albums to parse through")
+	flag.Parse()
 
-// 	genres, err := getGenreSeeds(auth.AccessToken)
-// 	if err != nil {
-// 		log.Fatalf("getGenreSeeds error: %v", err)
-// 	}
-// 	if len(genres) == 0 {
-// 		log.Fatal("Spotify returned no genre seeds.")
-// 	}
+	if start == "" || find == "" {
+		fmt.Println("Missing required flags: -start and/or -find.")
+		fmt.Println(`Usage: go run main.go -start "Artist A" -find "Artist B" [-depth N] [-verbose]`)
+		os.Exit(1)
+	}
 
-// 	// Pull artists from a few random genres until we have enough unique names.
-// 	want := defaultArtistSamples
-// 	unique := make(map[string]struct{})
-// 	safety := 0
+	// Ensure Spotify authorization before making any API calls
+	if err := ensureSpotifyAuth(); err != nil {
+		log.Fatalf("Spotify authorization failed: %v", err)
+	}
 
-// 	for len(unique) < want && safety < 10 {
-// 		safety++
-// 		genre := genres[rand.Intn(len(genres))]
-// 		names, err := getArtistsFromRecommendations(auth.AccessToken, genre, 100)
-// 		if err != nil {
-// 			log.Printf("recommendations error for genre %q: %v", genre, err)
-// 			continue
-// 		}
-// 		for _, n := range names {
-// 			unique[n] = struct{}{}
-// 			if len(unique) >= want {
-// 				break
-// 			}
-// 		}
-// 	}
+	// Create/Find Target Artist
+	// startArtist := FindArtistByName(context.Background(),start)
+	startArtist := sixdegrees.InputArtist(start)
+	if startArtist == nil || startArtist.ID == "" {
+		log.Fatalf("Start artist %q not found on Spotify.", start)
+	}
 
-// 	if len(unique) == 0 {
-// 		log.Fatal("Failed to retrieve any artists from recommendations.")
-// 	}
-// 	// Convert map to slice for indexed access
-// 	artists := make([]string, 0, len(unique))
-// 	for name := range unique {
-// 		artists = append(artists, name)
-// 		if len(artists) >= want {
-// 			break
-// 		}
-// 	}
+	// Create and Insert Target Artist to the Database if they do not exist in the current database
+	// targetArtist := FindArtistByName(context.Background(),find)
+	targetArtist := sixdegrees.InputArtist(find)
+	if targetArtist == nil || targetArtist.ID == "" {
+		log.Fatalf("Target artist %q not found on Spotify.", find)
+	}
 
-// 	// Print results
-// 	fmt.Println("\n=== Sample Artists ===")
+	// Ensure startArtist is the *less popular* one
+	if startArtist.Popularity > targetArtist.Popularity {
+		switchingArtist = true
+		startArtist, targetArtist = targetArtist, startArtist
+	}
 
-// 	for i := 0; i < len(artists)-1; i += 2 {
-// 		name1 = artists[i]
-// 		name2 = artists[i+1]
+	h := sixdegrees.NewHelper()
 
-// 		if i >= want {
-// 			break
-// 		}
+	var album = "" // Keep this empty for now
+	dbt, err := store.ListTracksByArtistID(context.Background(), startArtist.ID, 1e6)
+	if err != nil {
+		log.Printf("Warning: failed to fetch tracks for album %s: %v", startArtist.Name, err)
+	}
 
-// 		// Example of running the other Go command for your start/find
-// 		fmt.Printf("\nRunning search command: go run main.go -start %q -find %q\n", name1, name2)
+	tracks, err := json.Marshal(dbt)
+	if err != nil {
+		log.Printf("warning: failed to fetch tracks for album %s: %v", startArtist.Name, err)
+	}
+	t, _ := startArtist.CreateTracks(tracks, h)
 
-// 		cmd := exec.Command("go", "run", "main.go", "-start", name1, "-find", name2)
-// 		cmd.Stdout = os.Stdout
-// 		cmd.Stderr = os.Stderr
-// 		if err := cmd.Run(); err != nil {
-// 			log.Printf("Failed to run command: %v", err)
-// 		}
-// 	}
-// }
+	for _, tr := range t {
 
-// func authGET(token, endpoint string) (*http.Response, error) {
-// 	req, err := http.NewRequest("GET", endpoint, nil)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	req.Header.Set("Authorization", "Bearer "+token)
-// 	return http.DefaultClient.Do(req)
-// }
+		track := DBTrack{
+			ID:              tr.ID,
+			Name:            tr.Name,
+			AlbumID:         sql.NullString{String: album, Valid: album != ""},
+			PrimaryArtistID: sql.NullString{String: tr.Artist.ID, Valid: tr.Artist.ID != ""},
+		}
+		if err := store.UpsertTrack(context.Background(), track); err != nil {
+			log.Fatalf("Upsert failed: %v", err)
+		}
+	}
+	startArtist.Tracks = append(startArtist.Tracks, t...)
 
-// func getGenreSeeds(token string) ([]string, error) {
-// 	resp, err := authGET(token, genreSeedsURL)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer resp.Body.Close()
-// 	if resp.StatusCode/100 != 2 {
-// 		return nil, fmt.Errorf("genre seeds status: %s", resp.Status)
-// 	}
-// 	var gr genreSeedsResp
-// 	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
-// 		return nil, err
-// 	}
-// 	return gr.Genres, nil
-// }
+	// The second layer of the queue will be the targetArtist features
 
-// func getArtistsFromRecommendations(token, genre string, limit int) ([]string, error) {
-// 	if limit <= 0 || limit > 100 {
-// 		limit = 50
-// 	}
-// 	// Add mild randomness to audio features to vary results.
-// 	params := url.Values{}
-// 	params.Set("limit", fmt.Sprint(limit))
-// 	params.Set("seed_genres", genre)
-// 	params.Set("min_popularity", fmt.Sprint(rand.Intn(50))) // 0..49
-// 	params.Set("target_energy", fmt.Sprintf("%.2f", rand.Float64()))
-// 	params.Set("market", "US") // helps ensure playable tracks
+	dbt, err = store.ListTracksByArtistID(context.Background(), targetArtist.ID, 1e6)
+	if err != nil {
+		log.Printf("Warning: failed to fetch tracks for album %s: %v", targetArtist.Name, err)
+	}
 
-// 	endpoint := recommendationsURL + "?" + params.Encode()
-// 	resp, err := authGET(token, endpoint)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer resp.Body.Close()
-// 	if resp.StatusCode/100 != 2 {
-// 		return nil, fmt.Errorf("recommendations status: %s", resp.Status)
-// 	}
+	tracks, err = json.Marshal(dbt)
+	if err != nil {
+		log.Printf("warning: failed to fetch tracks for album %s: %v", targetArtist.Name, err)
+	}
+	t, _ = targetArtist.CreateTracks(tracks, h)
 
-// 	var rr recommendationsResp
-// 	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
-// 		return nil, err
-// 	}
+	for _, tr := range t {
 
-// 	seen := make(map[string]struct{})
-// 	var names []string
-// 	for _, t := range rr.Tracks {
-// 		for _, a := range t.Artists {
-// 			if a.Name == "" {
-// 				continue
-// 			}
-// 			if _, ok := seen[a.Name]; !ok {
-// 				names = append(names, a.Name)
-// 				seen[a.Name] = struct{}{}
-// 			}
-// 		}
-// 	}
-// 	return names, nil
-// }
+		track := DBTrack{
+			ID:              tr.ID,
+			Name:            tr.Name,
+			AlbumID:         sql.NullString{String: album, Valid: album != ""},
+			PrimaryArtistID: sql.NullString{String: tr.Artist.ID, Valid: tr.Artist.ID != ""},
+		}
+		if err := store.UpsertTrack(context.Background(), track); err != nil {
+			log.Fatalf("Upsert failed: %v", err)
+		}
+	}
+	targetArtist.Tracks = append(targetArtist.Tracks, t...)
+	// Run the connection search
+	helper, path, ok := RunSearchOptsDB(startArtist, targetArtist, depth, verbose, &limit)
+	if !ok || len(path) == 0 {
+		if depth >= 0 {
+			fmt.Printf("No path found between %q and %q within depth %d\n", startArtist.Name, targetArtist.Name, depth)
+		} else {
+			fmt.Printf("No path found between %q and %q\n", startArtist.Name, targetArtist.Name)
+		}
+		os.Exit(0)
+	}
+
+	// Display the found path
+	fmt.Printf("Path found between %q and %q (%d hops):\n\n", startArtist.Name, targetArtist.Name, len(path)-1)
+
+	if switchingArtist {
+		for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+			path[i], path[j] = path[j], path[i]
+		}
+	}
+
+	for i := 1; i < len(path); i++ {
+		from := path[i-1]
+		to := path[i]
+		track := helper.Evidence[from]
+		if track != "" {
+			fmt.Printf("%d. %s —[%s]→ %s\n", i, from, track, to)
+		} else {
+			fmt.Printf("%d. %s → %s\n", i, from, to)
+		}
+	}
+	endTime := time.Now().UTC().Unix()
+	fmt.Printf("Analysis took %s seconds", strconv.FormatInt(endTime-startTime, 10))
+	fmt.Println("\nDone.")
+}
