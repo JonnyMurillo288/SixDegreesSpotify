@@ -25,10 +25,15 @@ type Store struct {
 
 // createDBTrack builds a DBTrack struct from a sixdegrees.Track
 func createDBTrack(t sixdegrees.Track, album string) DBTrack {
+	var albumID sql.NullString
+	if album != "" {
+		albumID = sql.NullString{String: album, Valid: false} // don’t force FK if uncertain
+	}
+
 	return DBTrack{
 		ID:              t.ID,
 		Name:            t.Name,
-		AlbumID:         sql.NullString{String: album, Valid: album != ""},
+		AlbumID:         albumID,
 		PrimaryArtistID: sql.NullString{String: t.Artist.ID, Valid: t.Artist.ID != ""},
 	}
 }
@@ -135,12 +140,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 			FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE ON UPDATE CASCADE,
 			FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE ON UPDATE CASCADE
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
-		`CREATE TABLE MainHelper (
+		`CREATE TABLE IF NOT EXISTS MainHelper (
 			ArtistID VARCHAR(50) NOT NULL,
 			ArtistName VARCHAR(255),
 			FeaturedID VARCHAR(50),
 			FeaturedName VARCHAR(255),
 			TrackIDLink VARCHAR(50),
+			TrackNameLink VARCHAR(255),
 			PopularityWeight SMALLINT,
 			PRIMARY KEY (ArtistID, TrackIDLink)
 		);`,
@@ -200,8 +206,8 @@ func (s *Store) UpsertGraph(ctx context.Context, mh MainHelper) error {
 	}
 
 	q := `INSERT INTO MainHelper 
-			(ArtistID, ArtistName, FeaturedID, FeaturedName, TrackIDLink, PopularityWeight)
-		VALUES (?, ?, ?, ?, ?, ?)
+			(ArtistID, ArtistName, FeaturedID, FeaturedName, TrackIDLink,TrackNameLink, PopularityWeight)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 			ArtistName = VALUES(ArtistName),
 			FeaturedID = VALUES(FeaturedID),
@@ -416,6 +422,7 @@ func (s *Store) SearchAlbumsByName(ctx context.Context, qstr string, limit int) 
 	return out, rows.Err()
 }
 
+// Returns the track given a trackID
 func (s *Store) GetTrackByID(ctx context.Context, id string) (DBTrack, error) {
 	var row DBTrack
 	if id == "" {
@@ -534,6 +541,14 @@ func (s *Store) ListFeaturedArtistsForTrack(ctx context.Context, trackID string)
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// ============================ DBA to Spotify Object ============================ //
+
+func (s *Store) DBArtistsToArtists(dbArtists DBArtist) (*sixdegrees.Artists, error) {
+	var artist *sixdegrees.Artists
+
+	return sixdegrees.CreateArtists(artist.Name, artist.ID), nil
 }
 
 // ============================== Small helpers ============================== //

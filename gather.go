@@ -16,9 +16,10 @@ import (
 
 // This is a parallel main function that utilizes the database instead of searching
 // the Spotify API. For testing and eventually searching only here
-func MainDB() {
+func Smain() {
 
 	var store, err = Open("")
+	var mh MainHelper
 	if err != nil {
 		log.Fatalf("failed to connect: %v", err)
 	}
@@ -88,6 +89,7 @@ func MainDB() {
 	if err != nil {
 		log.Printf("warning: failed to fetch tracks for album %s: %v", startArtist.Name, err)
 	}
+	os.WriteFile("tracks_view.json", tracks, 0644)
 	t, _ := startArtist.CreateTracks(tracks, h)
 
 	for _, tr := range t {
@@ -100,6 +102,11 @@ func MainDB() {
 		}
 		if err := store.UpsertTrack(context.Background(), track); err != nil {
 			log.Fatalf("Upsert failed: %v", err)
+		}
+		for _, feat := range tr.Featured {
+			mh = createMainHelper(*startArtist, tr, *feat)
+			store.UpsertGraph(context.Background(), mh)
+
 		}
 	}
 	startArtist.Tracks = append(startArtist.Tracks, t...)
@@ -128,10 +135,15 @@ func MainDB() {
 		if err := store.UpsertTrack(context.Background(), track); err != nil {
 			log.Fatalf("Upsert failed: %v", err)
 		}
+		for _, feat := range tr.Featured {
+			mh = createMainHelper(*startArtist, tr, *feat)
+			store.UpsertGraph(context.Background(), mh)
+
+		}
 	}
 	targetArtist.Tracks = append(targetArtist.Tracks, t...)
 	// Run the connection search
-	helper, path, ok := RunSearchOptsDB(startArtist, targetArtist, depth, verbose, &limit)
+	helper, path, songs, ok := RunSearchOptsDB(startArtist, targetArtist, depth, verbose, &limit)
 	if !ok || len(path) == 0 {
 		if depth >= 0 {
 			fmt.Printf("No path found between %q and %q within depth %d\n", startArtist.Name, targetArtist.Name, depth)
@@ -143,7 +155,7 @@ func MainDB() {
 
 	// Display the found path
 	fmt.Printf("Path found between %q and %q (%d hops):\n\n", startArtist.Name, targetArtist.Name, len(path)-1)
-
+	fmt.Print(songs)
 	if switchingArtist {
 		for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 			path[i], path[j] = path[j], path[i]

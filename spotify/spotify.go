@@ -104,6 +104,7 @@ func retryAfterDelay(resp *http.Response) time.Duration {
 	if ra == "" {
 		return time.Second
 	}
+
 	if secs, err := strconv.Atoi(ra); err == nil {
 		return time.Duration(secs) * time.Second
 	}
@@ -195,6 +196,51 @@ func SearchArtist(artist string) ([]byte, error) {
 	}
 	body, _, err := doRequest("GET", "https://api.spotify.com/v1/search", header, q)
 	return body, err
+}
+
+// ArtistAlbumsAppearsOn fetches albums where the artist appears as a featured contributor ("appears_on").
+// It complements ArtistAlbums, which only fetches albums where the artist is the primary owner.
+func ArtistAlbumsAppearsOn(id string, limit int) ([]byte, error) {
+	base := fmt.Sprintf("https://api.spotify.com/v1/artists/%s/albums", id)
+	header := getHeader()
+	header["Accept"], header["Content-Type"] = "application/json", "application/json"
+
+	pageSize := 50
+	totalLimit := limit
+	if limit < 0 {
+		totalLimit = math.MaxInt32
+	}
+
+	var agg []interface{}
+	offset := 0
+	for {
+		params := map[string]string{
+			"include_groups": "appears_on",
+			"market":         "US",
+			"limit":          strconv.Itoa(pageSize),
+			"offset":         strconv.Itoa(offset),
+		}
+		body, status, err := doRequest("GET", base, header, params)
+		if err != nil {
+			return nil, err
+		}
+		if status < 200 || status >= 300 {
+			log.Printf("warning: ArtistAlbumsAppearsOn non-2xx status=%d for id=%s", status, id)
+		}
+		var page PaginatedItems
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, err
+		}
+		agg = append(agg, page.Items...)
+		if len(agg) >= totalLimit || page.Next == nil || *page.Next == "" || len(page.Items) == 0 {
+			break
+		}
+		offset += pageSize
+	}
+	out, _ := json.Marshal(struct {
+		Items []interface{} `json:"items"`
+	}{agg})
+	return out, nil
 }
 
 func ArtistAlbums(id string, limit int) ([]byte, error) {

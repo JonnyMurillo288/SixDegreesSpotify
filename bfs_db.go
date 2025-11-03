@@ -6,13 +6,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 )
 
+var store *Store
+
 // RunSearchOpts performs a bounded/unbounded BFS search between artists.
-func RunSearchOptsDB(start, target *sixdegrees.Artists, maxDepth int, verbose bool, limit *int) (*sixdegrees.Helper, []string, bool) {
+func RunSearchOptsDB(start, target *sixdegrees.Artists, maxDepth int, verbose bool, limit *int) (*sixdegrees.Helper, []string, []string, bool) {
+	var mh MainHelper
+	storeConn, err := Open("")
+	if err != nil {
+		log.Fatalf("failed to connect: %v", err)
+	}
+	defer storeConn.Close()
+
 	h := sixdegrees.NewHelper()
 	h.ArtistMap[start.Name] = start
 	h.DistTo[start.Name] = 0
@@ -49,6 +59,11 @@ func RunSearchOptsDB(start, target *sixdegrees.Artists, maxDepth int, verbose bo
 				if feat.Name == "" || feat.Name == current.Name {
 					continue
 				}
+				mh = createMainHelper(*tr.Artist, tr, *feat)
+
+				if err := store.UpsertGraph(context.Background(), mh); err == nil {
+					fmt.Printf("Error with upserting graph for %s, %s", tr.Artist.Name, tr.Name)
+				}
 				if visited[feat.Name] {
 					continue
 				}
@@ -84,9 +99,10 @@ func RunSearchOptsDB(start, target *sixdegrees.Artists, maxDepth int, verbose bo
 	}
 
 	if found {
-		return h, h.ReconstructPath(start.Name, target.Name), true
+		path, songs := h.ReconstructPath(start.Name, target.Name)
+		return h, path, songs, true
 	}
-	return h, nil, false
+	return h, nil, nil, false
 }
 
 // Functions for adding tracks to an artist item
@@ -105,6 +121,8 @@ func enrichArtistDB(a *sixdegrees.Artists, h *sixdegrees.Helper, target string, 
 		return fmt.Errorf("albums fetch failed for %s: %w", a.Name, err)
 	}
 	tracks, err := json.Marshal(body)
+	os.WriteFile("tracks_view.json", tracks, 0644)
+
 	if err != nil {
 		return fmt.Errorf("error with marshalling tracks")
 	}

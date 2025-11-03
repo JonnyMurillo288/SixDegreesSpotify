@@ -10,7 +10,7 @@ package sixdegrees
 // RunSearchOpts performs a bounded/unbounded BFS search between artists using
 // only the already-populated Tracks on the provided Artists. This avoids any
 // external API calls and is suitable for unit tests.
-func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, _ ...interface{}) (*Helper, []string, bool) {
+func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, _ ...interface{}) (*Helper, []string, []string, bool) {
 	h := NewHelper()
 	h.ArtistMap[start.Name] = start
 	h.DistTo[start.Name] = 0
@@ -58,8 +58,10 @@ func RunSearchOpts(start, target *Artists, maxDepth int, verbose bool, _ ...inte
 		}
 	}
 
+	// Always return helper; only build path if target found
 	if found {
-		return h, h.ReconstructPath(start.Name, target.Name), true
+		path, songs := h.ReconstructPath(start.Name, target.Name)
+		return h, path, songs, true
 	}
-	return h, nil, false
+	return h, nil, nil, false
 }

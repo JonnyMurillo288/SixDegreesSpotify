@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -18,14 +19,20 @@ type Track struct {
 }
 
 type trackResponse struct {
+	Href  string `json:"href"`
 	Items []struct {
 		ID      string `json:"id"`
 		Name    string `json:"name"`
 		Artists []struct {
-			Name string `json:"name"`
 			ID   string `json:"id"`
+			Name string `json:"name"`
 		} `json:"artists"`
 	} `json:"items"`
+	Limit    int         `json:"limit"`
+	Next     interface{} `json:"next"`
+	Offset   int         `json:"offset"`
+	Previous interface{} `json:"previous"`
+	Total    int         `json:"total"`
 }
 
 type albumResponse struct {
@@ -55,27 +62,48 @@ func NewHelper() *Helper {
 	}
 }
 
-func (h *Helper) ReconstructPath(start, target string) []string {
-	if start == "" || target == "" {
-		return nil
+func (h *Helper) ReconstructPath(start, target string) ([]string, []string) {
+	fmt.Println("Reconstructing Path")
+	for k, d := range h.DistTo { // This tests the DistTo and Prev maps, should be non decreasing order of discovery
+		fmt.Printf("%s depth %d prev %s\n", k, d, h.Prev[k])
 	}
+
+	if start == "" || target == "" {
+		return nil, nil
+	}
+	fmt.Println("Helper looks like:", h)
+
 	cur := target
 	var path []string
+	var songs []string
+
 	for cur != "" {
 		path = append(path, cur)
+
+		// Only add a song if it exists (and not for the start node)
+		if song, ok := h.Evidence[cur]; ok && cur != start {
+			songs = append(songs, song)
+		}
+
 		if cur == start {
 			break
 		}
+
 		cur = h.Prev[cur]
 		if cur == "" {
-			return nil
+			return nil, nil // path not found
 		}
 	}
-	// reverse
+
+	// reverse both slices
 	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 		path[i], path[j] = path[j], path[i]
 	}
-	return path
+	for i, j := 0, len(songs)-1; i < j; i, j = i+1, j-1 {
+		songs[i], songs[j] = songs[j], songs[i]
+	}
+
+	return path, songs
 }
 
 // newTrack builds a Track safely
@@ -100,6 +128,8 @@ func (a *Artists) CreateTracks(data []byte, h *Helper) ([]Track, *Helper) {
 		log.Printf("CreateTracks: failed to parse tracks for %s: %v", a.Name, err)
 		return nil, h
 	}
+	log.Printf("Parsed %d items for %s", len(parsed.Items), a.Name)
+	fmt.Println("Parsed", len(parsed.Items), "items for", a.Name)
 	if len(parsed.Items) == 0 {
 		log.Printf("CreateTracks: no tracks found for %s", a.Name)
 		return nil, h
