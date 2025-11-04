@@ -49,7 +49,7 @@ type Helper struct {
 	ArtistMap map[string]*Artists // visited artists by name
 	DistTo    map[string]int      // distance (hops)
 	Prev      map[string]string   // predecessor chain
-	Evidence  map[string]string   // track name connecting Prev[x] -> x
+	Evidence  map[string]Track    // track name connecting Prev[x] -> x
 }
 
 // NewHelper initializes an empty BFS helper
@@ -58,11 +58,11 @@ func NewHelper() *Helper {
 		ArtistMap: make(map[string]*Artists),
 		DistTo:    make(map[string]int),
 		Prev:      make(map[string]string),
-		Evidence:  make(map[string]string),
+		Evidence:  make(map[string]Track),
 	}
 }
 
-func (h *Helper) ReconstructPath(start, target string) ([]string, []string) {
+func (h *Helper) ReconstructPath(start, target string) ([]string, []Track) {
 	fmt.Println("Reconstructing Path")
 	for k, d := range h.DistTo { // This tests the DistTo and Prev maps, should be non decreasing order of discovery
 		fmt.Printf("%s depth %d prev %s\n", k, d, h.Prev[k])
@@ -71,11 +71,10 @@ func (h *Helper) ReconstructPath(start, target string) ([]string, []string) {
 	if start == "" || target == "" {
 		return nil, nil
 	}
-	fmt.Println("Helper looks like:", h)
 
 	cur := target
 	var path []string
-	var songs []string
+	var songs []Track
 
 	for cur != "" {
 		path = append(path, cur)

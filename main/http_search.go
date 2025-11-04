@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -15,52 +14,27 @@ import (
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
 
-func Main() {
-	var store, err = Open("")
-	if err != nil {
-		log.Fatalf("failed to connect: %v", err)
-	}
-	defer store.Close()
-
-	if err := store.Migrate(context.Background()); err != nil {
-		log.Fatalf("migration failed: %v", err)
-	}
-
-	log.Println("Database ready!")
-
-	startTime := time.Now().UTC().Unix()
-	var start, find string
-	var depth int
-	var verbose bool
-	var limit int
+// SearchArtists runs the full pipeline to compute a collaboration path between two artists.
+// It mirrors the CLI logic but returns structured data for HTTP.
+func SearchArtists(ctx context.Context, store *Store, start, target string, depth, limit int, offline bool) (int, []struct{ From, Track, To string }, string, error) {
+	var err error
 	var switchingArtist bool
-	var offline bool
-	switchingArtist = false
+	var find = target       // to match CLI variable naming
+	switchingArtist = false // reset switchingArtist for each call
+	var verbose = true      // enable verbose logging for HTTP requests
+	startTime := time.Now().UTC().Unix()
 
-	flag.StringVar(&start, "start", "", "Starting artist name")
-	flag.StringVar(&find, "find", "", "Target artist name to find connection to")
-	flag.IntVar(&depth, "depth", -1, "Maximum BFS depth in hops (-1 for unlimited)")
-	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
-	flag.IntVar(&limit, "limit", 5, "Max Limit of albums to parse through")
-	flag.BoolVar(&offline, "offline", false, "Run in offline mode to skip Spotify API Calls")
-	flag.Parse()
-
-	if start == "" || find == "" {
-		fmt.Println("Missing required flags: -start and/or -find.")
-		fmt.Println(`Usage: go run main.go -start "Artist A" -find "Artist B" [-depth N] [-verbose]`)
-		os.Exit(1)
+	if start == "" || target == "" {
+		return 0, nil, "start and target required", nil
 	}
 
-	// Ensure Spotify authorization before making any API calls
-	// if err := ensureSpotifyAuth(); err != nil {
-	// 	log.Fatalf("Spotify authorization failed: %v", err)
-	// }
+	var (
+		startArtist  *sixdegrees.Artists
+		targetArtist *sixdegrees.Artists
+		gotArtist    bool
+	)
 
-	// Create/Find Target Artist
-	var startArtist *sixdegrees.Artists
-	var targetArtist *sixdegrees.Artists
-	var gotArtist bool // This is a checker for if we got the artist from the DB
-
+	// Start artist
 	// If we are offline mode get the Artist from the DB
 	// If we are not then get from the Spotify API
 	if offline {
@@ -239,6 +213,7 @@ func Main() {
 
 	// Run the connection search
 	helper, path, songs, ok := RunSearchOptsBFS(store, startArtist, targetArtist, depth, verbose, &limit, offline)
+
 	if !ok || len(path) == 0 {
 		if depth >= 0 {
 			fmt.Printf("No path found between %q and %q within depth %d\n", startArtist.Name, targetArtist.Name, depth)
@@ -259,6 +234,9 @@ func Main() {
 	}
 	fmt.Println(path, len((path)), h.Evidence[start], songs)
 	var results []string // results will hold the track ID that we need
+	var steps []struct{ From, Track, To string }
+	var trackSteps []sixdegrees.Track
+
 	for i := 1; i < len(path); i++ {
 		from := path[i-1]
 		to := path[i]
@@ -267,7 +245,8 @@ func Main() {
 		fmt.Println("Previous:", h.Prev)
 		if track.Name != "" {
 			fmt.Printf("%d. %s —[%s]→ %s\n", i, from, track, to)
-			results = append(results, track.Name)
+			steps = append(steps, struct{ From, Track, To string }{From: from, Track: track.Name, To: to})
+			trackSteps = append(trackSteps, track)
 		} else {
 			fmt.Printf("%d. %s → %s\n", i, from, to)
 		}
@@ -286,4 +265,5 @@ func Main() {
 	endTime := time.Now().UTC().Unix()
 	fmt.Printf("Analysis took %s seconds", strconv.FormatInt(endTime-startTime, 10))
 	fmt.Println("\nDone.")
+	return len(path) - 1, steps, "", nil
 }

@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/gorilla/mux"
 	"golang.org/x/oauth2"
 )
 
@@ -33,6 +32,7 @@ func HomePage(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Redirecting user to Spotify authorization...")
 	config = createConfig()
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
+	fmt.Println(authURL)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
@@ -71,11 +71,6 @@ func Authorize(w http.ResponseWriter, r *http.Request) {
 		Refresh:     token.RefreshToken,
 		Expires:     token.Expiry.Format(time.RFC3339Nano),
 	}
-	tokenJSON, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		http.Error(w, "Failed to marshal token", http.StatusInternalServerError)
-		return
-	}
 
 	tokenPath := "./main/authToken.txt"
 	tokenFile, err := os.OpenFile(tokenPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -85,13 +80,15 @@ func Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tokenFile.Close()
 
-	if _, err := tokenFile.Write(tokenJSON); err != nil {
+	if err := json.NewEncoder(tokenFile).Encode(st); err != nil {
 		http.Error(w, "Failed to write token: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	fmt.Fprintf(w, "Authorization complete! Token saved to %s\n", tokenPath)
 	fmt.Println("Token written to file successfully.")
+
+	// Only one successful response: the redirect
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 // Load credentials and create OAuth2 config
@@ -105,7 +102,7 @@ func createConfig() *oauth2.Config {
 	if err := json.Unmarshal(data, &p); err != nil {
 		panic("Failed to parse authConfig.txt: " + err.Error())
 	}
-
+	fmt.Println("Loaded redirect URL:", p.RedirectURL)
 	return &oauth2.Config{
 		ClientID:     p.ClientID,
 		ClientSecret: p.ClientSecret,
@@ -115,13 +112,13 @@ func createConfig() *oauth2.Config {
 	}
 }
 
-func main() {
-	router := mux.NewRouter()
-	router.HandleFunc("/", HomePage)
-	router.HandleFunc("/auth", Authorize)
+// func main() {
+// 	router := mux.NewRouter()
+// 	router.HandleFunc("/", HomePage)
+// 	router.HandleFunc("/auth", Authorize)
 
-	fmt.Println("Server running on http://localhost:8392/")
-	if err := http.ListenAndServe(":8392", router); err != nil {
-		fmt.Println("Error starting server:", err)
-	}
-}
+// 	fmt.Println("Server running on http://localhost:8392/")
+// 	if err := http.ListenAndServe(":8392", router); err != nil {
+// 		fmt.Println("Error starting server:", err)
+// 	}
+// }

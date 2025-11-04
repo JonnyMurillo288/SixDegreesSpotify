@@ -12,7 +12,7 @@ import (
 )
 
 // RunSearchOpts performs a best-first (popularity-weighted) traversal through the entire queue.
-func RunSearchOptsDIJKSTRA(store *Store, start, target *sixdegrees.Artists, maxDepth int, verbose bool, limit *int, offline bool) (*sixdegrees.Helper, []string, []string, bool) {
+func RunSearchOptsDIJKSTRA(store *Store, start, target *sixdegrees.Artists, maxDepth int, verbose bool, limit *int, offline bool) (*sixdegrees.Helper, []string, []sixdegrees.Track, bool) {
 	var err error
 	var storeConn *Store
 	if store == nil {
@@ -80,7 +80,7 @@ func RunSearchOptsDIJKSTRA(store *Store, start, target *sixdegrees.Artists, maxD
 			}
 			// Record path evidence
 			if tr.Artist != nil {
-				h.Evidence[tr.Artist.Name] = tr.Name
+				h.Evidence[tr.Artist.Name] = tr
 			}
 
 			for _, feat := range tr.Featured {
@@ -101,7 +101,7 @@ func RunSearchOptsDIJKSTRA(store *Store, start, target *sixdegrees.Artists, maxD
 
 				visited[feat.Name] = true
 				h.Prev[feat.Name] = current.Name
-				h.Evidence[feat.Name] = tr.Name
+				h.Evidence[feat.Name] = tr
 				h.DistTo[feat.Name] = h.DistTo[current.Name] + 1
 				h.ArtistMap[feat.Name] = feat
 

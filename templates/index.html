@@ -1,18 +1,134 @@
-<!DOCTYPE html>
-<html>
-    <head>
-        <title>Welcome to the Home Page</title>
-    </head>
-    <body>
-        <h1>Select 2 artists</h1>
-        <form action="/join" method="post">
-            Room:<input type="text" name="Room">
-            <input type="submit" value="Join">
-        </form>
-        {{ range $key, $value := . }}
-            <li><strong>{{ $key }}</strong>
-                There are no rooms, enter one to create one
-            </li>
-        {{ end }}
-    </body>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SixDegreeSpotify</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    h1 { margin: 0; font-size: 1.5rem; }
+    .actions { display: flex; gap: .5rem; }
+    .btn { display: inline-block; padding: .5rem .75rem; border: 1px solid #ccc; border-radius: 6px; text-decoration: none; cursor: pointer; background: #000000ff; color: inherit; }
+    form { margin-top: 1.25rem; max-width: 720px; }
+    label { display: block; margin-top: .75rem; }
+    input[type=text], input[type=number] { width: 100%; padding: .6rem .7rem; border: 1px solid #ccc; border-radius: 6px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    .muted { color: #666; }
+    #results { margin-top: 1.25rem; }
+    #list { margin-top: .5rem; }
+    .error { color: #b00020; }
+    .spinner { display: none; margin-top: .75rem; }
+    .step { margin: .2rem 0; }
+    ol { padding-left: 1.25rem; }
+    @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SixDegreeSpotify</h1>
+    <div class="actions">
+      <a class="btn" href="/auth">Login with Spotify</a>
+      <a class="btn" href="/status" target="_blank">Status</a>
+    </div>
+  </header>
+
+  <p class="muted">Find a collaboration path between two artists using Spotify data.</p>
+
+  <form id="searchForm">
+    <div class="row">
+      <label>
+        Start Artist
+        <input id="startArtist" type="text" name="start" placeholder="Eminem" required />
+      </label>
+      <label>
+        Target Artist
+        <input id="targetArtist" type="text" name="target" placeholder="Taylor Swift" required />
+      </label>
+    </div>
+    <div class="row">
+      <label>
+        Max Depth (optional)
+        <input id="depth" type="number" name="depth" min="-1" step="1" value="-1" />
+      </label>
+      <div></div>
+    </div>
+    <button class="btn" type="submit">Search</button>
+    <div id="spinner" class="spinner">Searching…</div>
+  </form>
+
+  <div id="results"></div>
+
+  <script>
+    async function runSearch(form) {
+      const start = document.getElementById("startArtist").value.trim();
+      const target = document.getElementById("targetArtist").value.trim();
+      const depth = Number(document.getElementById("depth").value || -1);
+      const resultsDiv = document.getElementById("results");
+      const spinner = document.getElementById("spinner");
+
+      if (!start || !target) {
+        resultsDiv.innerHTML = '<p class="error">Start and Target are required.</p>';
+        return;
+      }
+
+      resultsDiv.innerHTML = '';
+      spinner.style.display = 'inline-block';
+
+      try {
+        const response = await fetch('/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start, target, depth })
+        });
+
+        spinner.style.display = 'none';
+
+        if (!response.ok) {
+          const text = await response.text();
+          resultsDiv.innerHTML = '<p class="error">Error: ' + (response.statusText || text) + '</p>';
+          return;
+        }
+
+        const data = await response.json();
+        // Expecting a JSON like: { start, target, hops, path: [{from, track, to}], message? }
+        if (data.message) {
+          resultsDiv.innerHTML = '<p class="muted">' + data.message + '</p>';
+          return;
+        }
+
+        const header = document.createElement('div');
+        header.innerHTML = '<p><strong>Start:</strong> ' + (data.start || start) +
+                           '<br><strong>Target:</strong> ' + (data.target || target) +
+                           '<br><strong>Hops:</strong> ' + (data.hops ?? (Array.isArray(data.path) ? Math.max(0, data.path.length - 1) : '')) + '</p>';
+
+        const list = document.createElement('ol');
+        const steps = Array.isArray(data.path) ? data.path : [];
+        for (let i = 0; i < steps.length; i++) {
+          const s = steps[i];
+          const from = s.from ?? s.From ?? '';
+          const to = s.to ?? s.To ?? '';
+          const track = s.track ?? s.Track ?? s;
+          const li = document.createElement('li');
+          li.className = 'step';
+          li.textContent = (from && to) ? `${from} —[${track}]→ ${to}` : `${i + 1}. ${track}`;
+          list.appendChild(li);
+        }
+
+        resultsDiv.innerHTML = '';
+        resultsDiv.appendChild(header);
+        resultsDiv.appendChild(list);
+      } catch (err) {
+        spinner.style.display = 'none';
+        resultsDiv.innerHTML = '<p class="error">Request failed: ' + err + '</p>';
+      }
+    }
+
+    document.getElementById('searchForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      runSearch(e.target);
+    });
+  </script>
+</body>
 </html>
