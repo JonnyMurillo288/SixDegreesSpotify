@@ -9,19 +9,20 @@ import (
 	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 )
 
+var globalVisitedTracks []string
+
 // RunSearchOptsBFS performs a breadth-first (popularity-weighted) traversal between artists.
-func RunSearchOptsBFS(store *Store, start, target *sixdegrees.Artists, maxDepth int, verbose bool, limit *int, offline bool) (*sixdegrees.Helper, []string, []sixdegrees.Track, bool) {
-	var err error
-	var storeConn *Store
-	if store == nil {
-		storeConn, err = Open("")
-		if err != nil {
-			return nil, nil, nil, false
-		}
-		defer storeConn.Close()
-	} else {
-		storeConn = store
-	}
+func RunSearchOptsBFS(start, target *sixdegrees.Artists, maxDepth int, verbose bool, limit *int, offline bool) (*sixdegrees.Helper, []string, []sixdegrees.Track, bool) {
+	// var storeConn *Store
+	// if store == nil {
+	// 	storeConn, err = Open("")
+	// 	if err != nil {
+	// 		return nil, nil, nil, false
+	// 	}
+	// 	defer storeConn.Close()
+	// } else {
+	// 	storeConn = store
+	// }
 
 	h := sixdegrees.NewHelper()
 	h.ArtistMap[start.Name] = start
@@ -61,10 +62,10 @@ func RunSearchOptsBFS(store *Store, start, target *sixdegrees.Artists, maxDepth 
 		}
 
 		// Enrich artist (DB → Cache → API)
-		if err := storeConn.enrichArtist(current, h, target.Name, &found, verbose, limit, offline); err != nil && verbose {
-			log.Printf("enrichArtist error for %s: %v", current.Name, err)
-		}
-		fmt.Println("Current artist has", len(current.Tracks), "tracks after enrichment.")
+		// if err := storeConn.enrichArtist(current, h, target.Name, &found, verbose, limit, offline); err != nil && verbose {
+		// 	log.Printf("enrichArtist error for %s: %v", current.Name, err)
+		// }
+		// fmt.Println("Current artist has", len(current.Tracks), "tracks after enrichment.")
 
 		// Early exit if enrichment directly discovered target
 		if found {
@@ -76,6 +77,7 @@ func RunSearchOptsBFS(store *Store, start, target *sixdegrees.Artists, maxDepth 
 				continue
 			}
 			visitedTracks[tr.ID] = true
+			globalVisitedTracks = append(globalVisitedTracks, tr.ID)
 
 			if verbose {
 				fmt.Printf("Processing track: %s (%s)\n", tr.Name, current.Name)

@@ -62,6 +62,9 @@ func NewHelper() *Helper {
 	}
 }
 
+// Function to reconstruct the path from start to target artist.
+// THis function operates by backtracking from the target to the start using the Prev map.
+// At the end the path and songs slices are reversed to present them in the correct order.
 func (h *Helper) ReconstructPath(start, target string) ([]string, []Track) {
 	fmt.Println("Reconstructing Path")
 	for k, d := range h.DistTo { // This tests the DistTo and Prev maps, should be non decreasing order of discovery

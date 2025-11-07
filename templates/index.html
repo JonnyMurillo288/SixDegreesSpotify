@@ -10,19 +10,16 @@
     header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
     h1 { margin: 0; font-size: 1.5rem; }
     .actions { display: flex; gap: .5rem; }
-    .btn { display: inline-block; padding: .5rem .75rem; border: 1px solid #ccc; border-radius: 6px; text-decoration: none; cursor: pointer; background: #000000ff; color: inherit; }
+    .btn { display: inline-block; padding: .5rem .75rem; border: 1px solid #ccc; border-radius: 6px; text-decoration: none; cursor: pointer; background: #000; color: #fff; }
     form { margin-top: 1.25rem; max-width: 720px; }
     label { display: block; margin-top: .75rem; }
     input[type=text], input[type=number] { width: 100%; padding: .6rem .7rem; border: 1px solid #ccc; border-radius: 6px; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
     .muted { color: #666; }
     #results { margin-top: 1.25rem; }
-    #list { margin-top: .5rem; }
+    ol { padding-left: 1.25rem; }
     .error { color: #b00020; }
     .spinner { display: none; margin-top: .75rem; }
-    .step { margin: .2rem 0; }
-    ol { padding-left: 1.25rem; }
-    @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -52,80 +49,164 @@
         Max Depth (optional)
         <input id="depth" type="number" name="depth" min="-1" step="1" value="-1" />
       </label>
-      <div></div>
     </div>
     <button class="btn" type="submit">Search</button>
     <div id="spinner" class="spinner">Searching…</div>
+    <div class="muted">Can take up to 30 minutes to process.</div>
+    <div id="elapsedTimeDisplay" class="muted" style="margin-top:0.5rem;">00:00:00</div>
   </form>
 
   <div id="results"></div>
 
   <script>
+    // Timer
+    let elapsedTimeInterval = null;
+
     async function runSearch(form) {
       const start = document.getElementById("startArtist").value.trim();
       const target = document.getElementById("targetArtist").value.trim();
       const depth = Number(document.getElementById("depth").value || -1);
       const resultsDiv = document.getElementById("results");
       const spinner = document.getElementById("spinner");
+      const displayElement = document.getElementById('elapsedTimeDisplay');
 
       if (!start || !target) {
         resultsDiv.innerHTML = '<p class="error">Start and Target are required.</p>';
         return;
       }
 
+      // Reset UI
       resultsDiv.innerHTML = '';
       spinner.style.display = 'inline-block';
+      const startTime = Date.now();
+
+      // --- timer for elapsed time ---
+      if (elapsedTimeInterval) clearInterval(elapsedTimeInterval);
+      elapsedTimeInterval = setInterval(() => {
+        const diff = Date.now() - startTime;
+        const hours = Math.floor(diff / 3600000);
+        const minutes = Math.floor((diff % 3600000) / 60000);
+        const seconds = Math.floor((diff % 60000) / 1000);
+        displayElement.textContent =
+          `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      }, 1000);
 
       try {
-        const response = await fetch('/search', {
+        const res = await fetch('/search', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ start, target, depth })
+          body: JSON.stringify({ start, target, depth }),
         });
 
         spinner.style.display = 'none';
+        clearInterval(elapsedTimeInterval);
 
-        if (!response.ok) {
-          const text = await response.text();
-          resultsDiv.innerHTML = '<p class="error">Error: ' + (response.statusText || text) + '</p>';
-          return;
-        }
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
 
-        const data = await response.json();
-        // Expecting a JSON like: { start, target, hops, path: [{from, track, to}], message? }
         if (data.message) {
-          resultsDiv.innerHTML = '<p class="muted">' + data.message + '</p>';
+          resultsDiv.innerHTML = `<p class="muted">${data.message}</p>`;
           return;
         }
 
+        // Results Header
         const header = document.createElement('div');
-        header.innerHTML = '<p><strong>Start:</strong> ' + (data.start || start) +
-                           '<br><strong>Target:</strong> ' + (data.target || target) +
-                           '<br><strong>Hops:</strong> ' + (data.hops ?? (Array.isArray(data.path) ? Math.max(0, data.path.length - 1) : '')) + '</p>';
+        header.innerHTML = `
+          <p><strong>Start:</strong> ${data.start}<br>
+          <strong>Target:</strong> ${data.target}<br>
+          <strong>Hops:</strong> ${data.hops}</p>
+        `;
 
+        // Results List
         const list = document.createElement('ol');
-        const steps = Array.isArray(data.path) ? data.path : [];
-        for (let i = 0; i < steps.length; i++) {
-          const s = steps[i];
-          const from = s.from ?? s.From ?? '';
-          const to = s.to ?? s.To ?? '';
-          const track = s.track ?? s.Track ?? s;
+        const trackIDs = [];
+
+        for (const s of data.path) {
+          const from = s.from ?? '';
+          const to = s.to ?? '';
+          const trackName = s.track ?? 'Unknown Track';
+          const trackID = s.trackID ?? '';
+          const trackURL = s.trackURL ?? '';
+
+          if (trackID) trackIDs.push(trackID);
+
           const li = document.createElement('li');
-          li.className = 'step';
-          li.textContent = (from && to) ? `${from} —[${track}]→ ${to}` : `${i + 1}. ${track}`;
+          li.innerHTML = `
+            <div style="display:flex;align-items:center;gap:1rem;">
+              <div class="img-placeholder" style="width:64px;height:64px;background:#ccc;border-radius:4px;"></div>
+              <div>
+                ${trackURL
+                  ? `<a href="${trackURL}" target="_blank"><strong>${trackName}</strong></a>`
+                  : `<strong>${trackName}</strong>`}
+                <br><small>${from ? `${from} → ${to}` : ''}</small>
+              </div>
+            </div>`;
           list.appendChild(li);
+
+          if (trackURL) {
+            const img = document.createElement('img');
+            img.src = trackURL;
+            img.width = 64;
+            img.height = 64;
+            img.style.borderRadius = '4px';
+            li.querySelector('.img-placeholder').replaceWith(img);
+          }
         }
+
+        // Playlist controls
+        const controlsDiv = document.createElement('div');
+        controlsDiv.style.marginTop = '1rem';
+        const playlistName = document.createElement('input');
+        playlistName.type = 'text';
+        playlistName.placeholder = 'Playlist Name (optional)';
+        playlistName.style.marginRight = '0.5rem';
+        playlistName.style.padding = '0.4rem';
+        playlistName.style.borderRadius = '6px';
+        playlistName.style.border = '1px solid #ccc';
+
+        const playlistBtn = document.createElement('button');
+        playlistBtn.className = 'btn';
+        playlistBtn.textContent = 'Create Playlist';
+        playlistBtn.onclick = async () => {
+          playlistBtn.disabled = true;
+          playlistBtn.textContent = 'Creating...';
+          const name = playlistName.value.trim() || `${start} → ${target} Path`;
+          try {
+            const r = await fetch('/createPlaylist', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, trackIDs }),
+            });
+            if (r.ok) {
+              const j = await r.json();
+              playlistBtn.textContent = '✅ Playlist Created';
+              const link = document.createElement('p');
+              link.innerHTML = `<a href="${j.url}" target="_blank">Open in Spotify</a>`;
+              resultsDiv.appendChild(link);
+            } else {
+              playlistBtn.textContent = 'Error creating playlist';
+            }
+          } catch (err) {
+            playlistBtn.textContent = 'Error creating playlist';
+            console.error(err);
+          }
+        };
+
+        controlsDiv.appendChild(playlistName);
+        controlsDiv.appendChild(playlistBtn);
 
         resultsDiv.innerHTML = '';
         resultsDiv.appendChild(header);
         resultsDiv.appendChild(list);
+        resultsDiv.appendChild(controlsDiv);
       } catch (err) {
         spinner.style.display = 'none';
-        resultsDiv.innerHTML = '<p class="error">Request failed: ' + err + '</p>';
+        clearInterval(elapsedTimeInterval);
+        resultsDiv.innerHTML = `<p class="error">Request failed: ${err}</p>`;
       }
     }
 
-    document.getElementById('searchForm').addEventListener('submit', function (e) {
+    document.getElementById('searchForm').addEventListener('submit', (e) => {
       e.preventDefault();
       runSearch(e.target);
     });

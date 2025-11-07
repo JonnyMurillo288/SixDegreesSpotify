@@ -1,12 +1,13 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
 
 // ---- Structs for frontend search ----
@@ -82,15 +83,15 @@ func main() {
 		}
 		limit := 1000 // or make this configurable later
 
-		ctx := context.Background()
-		store, err := Open("") // your DB open function; pass path/config as needed
-		if err != nil {
-			http.Error(w, "database open failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer store.Close()
+		// ctx := context.Background()
+		// store, err := Open("") // your DB open function; pass path/config as needed
+		// if err != nil {
+		// 	http.Error(w, "database open failed: "+err.Error(), http.StatusInternalServerError)
+		// 	return
+		// }
+		// defer store.Close()
 
-		hops, steps, message, err := SearchArtists(ctx, store, req.Start, req.Target, req.Depth, limit, false)
+		hops, steps, message, err := SearchArtists(req.Start, req.Target, req.Depth, limit, false)
 		if err != nil {
 			http.Error(w, "search failed: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -122,6 +123,40 @@ func main() {
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			http.Error(w, "failed to encode response: "+err.Error(), http.StatusInternalServerError)
 		}
+		// ---- Create Playlist ----
+		mux.HandleFunc("/createPlaylist", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			var req struct {
+				Name     string   `json:"name"`
+				TrackIDs []string `json:"trackIDs"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			if req.Name == "" || len(req.TrackIDs) == 0 {
+				http.Error(w, "playlist name and track IDs required", http.StatusBadRequest)
+				return
+			}
+
+			url, err := spotify.CreatePlaylist(req.Name, req.TrackIDs)
+			if err != nil {
+				log.Printf("playlist creation failed: %v", err)
+				http.Error(w, "playlist creation failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{
+				"status": "success",
+				"url":    url,
+			})
+		})
+
 	})
 
 	// ---- Server startup ----
