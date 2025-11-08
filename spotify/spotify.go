@@ -132,6 +132,10 @@ func getHeader() map[string]string {
 
 func loadOrObtainToken() (*Auth, error) {
 	path := "./main/authToken.txt"
+
+	// wd, _ := os.Getwd()
+	// tokenPath := filepath.Join(wd, "authToken.txt")
+	// f, err := os.Open(tokenPath)
 	b, err := os.ReadFile(path)
 	if err == nil {
 		var t Auth
@@ -140,7 +144,7 @@ func loadOrObtainToken() (*Auth, error) {
 		}
 		log.Println("Existing Spotify token expired or invalid.")
 	} else {
-		log.Println("No Spotify token found; starting authorization flow...")
+		log.Println("No Spotify token found; starting authorization flow...", err)
 	}
 
 	if err := launchAuthFlow(); err != nil {
@@ -268,6 +272,7 @@ func ArtistAlbums(id string, limit int) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		log.Println("Status code for ArtistAlbums:", status)
 		if status == 429 {
 			time.Sleep(300 * time.Millisecond)
 		}

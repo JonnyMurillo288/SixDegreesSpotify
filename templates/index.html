@@ -103,6 +103,7 @@
 
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
+        // This will be in the form of { start, target, hops, path: [ { from, to, track, trackID, trackURL }, ... ] }
 
         if (data.message) {
           resultsDiv.innerHTML = `<p class="muted">${data.message}</p>`;

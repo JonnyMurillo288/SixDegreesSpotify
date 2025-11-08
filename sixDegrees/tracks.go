@@ -44,68 +44,91 @@ type albumResponse struct {
 	} `json:"items"`
 }
 
-// Helper tracks visited artists, distances, predecessor chain, and edge evidence.
-type Helper struct {
-	ArtistMap map[string]*Artists // visited artists by name
-	DistTo    map[string]int      // distance (hops)
-	Prev      map[string]string   // predecessor chain
-	Evidence  map[string]Track    // track name connecting Prev[x] -> x
+// in sixdegrees package or same place you keep Helper types
+type EdgeSnap struct {
+	FromID    string
+	FromName  string
+	ToID      string
+	ToName    string
+	TrackID   string
+	TrackName string
+	PhotoURL  string
 }
 
-// NewHelper initializes an empty BFS helper
+type Helper struct {
+	ArtistByID map[string]*Artists
+	IDByName   map[string]string
+
+	DistToID map[string]int      // by artist ID
+	PrevID   map[string]string   // toID -> fromID
+	Evidence map[string]EdgeSnap // toID -> immutable edge
+
+}
+
 func NewHelper() *Helper {
 	return &Helper{
-		ArtistMap: make(map[string]*Artists),
-		DistTo:    make(map[string]int),
-		Prev:      make(map[string]string),
-		Evidence:  make(map[string]Track),
+		ArtistByID: make(map[string]*Artists),
+		IDByName:   make(map[string]string),
+
+		DistToID: make(map[string]int),
+		PrevID:   make(map[string]string),
+		Evidence: make(map[string]EdgeSnap),
 	}
 }
 
 // Function to reconstruct the path from start to target artist.
 // THis function operates by backtracking from the target to the start using the Prev map.
 // At the end the path and songs slices are reversed to present them in the correct order.
-func (h *Helper) ReconstructPath(start, target string) ([]string, []Track) {
-	fmt.Println("Reconstructing Path")
-	for k, d := range h.DistTo { // This tests the DistTo and Prev maps, should be non decreasing order of discovery
-		fmt.Printf("%s depth %d prev %s\n", k, d, h.Prev[k])
-	}
-
-	if start == "" || target == "" {
+func (h *Helper) ReconstructPathIDs(startID, targetID string) ([]string, []EdgeSnap) {
+	fmt.Println("Reconstructing path from", startID, "to", targetID)
+	if startID == "" || targetID == "" {
 		return nil, nil
 	}
 
-	cur := target
-	var path []string
-	var songs []Track
+	cur := targetID
+	var ids []string
+	var edges []EdgeSnap
 
 	for cur != "" {
-		path = append(path, cur)
-
-		// Only add a song if it exists (and not for the start node)
-		if song, ok := h.Evidence[cur]; ok && cur != start {
-			songs = append(songs, song)
+		ids = append(ids, cur)
+		if cur != startID {
+			if e, ok := h.Evidence[cur]; ok {
+				edges = append(edges, e)
+			}
 		}
-
-		if cur == start {
+		fmt.Print("Edge evidence so far:", edges, "\n")
+		if cur == startID {
 			break
 		}
-
-		cur = h.Prev[cur]
+		cur = h.PrevID[cur]
 		if cur == "" {
-			return nil, nil // path not found
+			return nil, nil
+		} // not found
+	}
+
+	// reverse
+	for i, j := 0, len(ids)-1; i < j; i, j = i+1, j-1 {
+		ids[i], ids[j] = ids[j], ids[i]
+	}
+	for i, j := 0, len(edges)-1; i < j; i, j = i+1, j-1 {
+		edges[i], edges[j] = edges[j], edges[i]
+	}
+
+	return ids, edges
+}
+
+func (h *Helper) PrintPath(ids []string, edges []EdgeSnap) {
+	for i, id := range ids {
+		name := ""
+		if a := h.ArtistByID[id]; a != nil {
+			name = a.Name
+		}
+		fmt.Printf("%d. %s (%s)\n", i+1, name, id)
+		if i < len(edges) {
+			e := edges[i]
+			fmt.Printf("   └─ [%s] %s → %s\n", e.TrackID, e.TrackName, e.ToName)
 		}
 	}
-
-	// reverse both slices
-	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
-		path[i], path[j] = path[j], path[i]
-	}
-	for i, j := 0, len(songs)-1; i < j; i, j = i+1, j-1 {
-		songs[i], songs[j] = songs[j], songs[i]
-	}
-
-	return path, songs
 }
 
 // newTrack builds a Track safely
@@ -130,8 +153,8 @@ func (a *Artists) CreateTracks(data []byte, h *Helper) ([]Track, *Helper) {
 		log.Printf("CreateTracks: failed to parse tracks for %s: %v", a.Name, err)
 		return nil, h
 	}
-	log.Printf("Parsed %d items for %s", len(parsed.Items), a.Name)
-	fmt.Println("Parsed", len(parsed.Items), "items for", a.Name)
+	// log.Printf("Parsed %d items for %s", len(parsed.Items), a.Name)
+	// fmt.Println("Parsed", len(parsed.Items), "items for", a.Name)
 	if len(parsed.Items) == 0 {
 		log.Printf("CreateTracks: no tracks found for %s", a.Name)
 		return nil, h
@@ -139,23 +162,51 @@ func (a *Artists) CreateTracks(data []byte, h *Helper) ([]Track, *Helper) {
 
 	var tracks []Track
 	for _, item := range parsed.Items {
+
+		// --- Step 1: check if this artist is on this track ---
+		hasSelf := false
+		for _, art := range item.Artists {
+			if art.ID == a.ID || art.Name == a.Name {
+				hasSelf = true
+				break
+			}
+		}
+		if !hasSelf {
+			// This track does not include artist 'a', skip it.
+			continue
+		}
+
+		// --- Step 2: build list of featured artists (others on the same track) ---
 		var feat []*Artists
 		for _, art := range item.Artists {
-			if art.Name == a.Name {
-				continue
+			if art.ID == "" || art.Name == "" {
+				continue // ignore incomplete data
 			}
-			if existing, ok := h.ArtistMap[art.Name]; ok {
+			if art.ID == a.ID || art.Name == a.Name {
+				continue // skip self
+			}
+
+			// Reuse or create artist reference
+			if existing, ok := h.ArtistByID[art.ID]; ok {
 				feat = append(feat, existing)
 			} else {
 				if newA := InputArtist(art.Name); newA != nil {
-					h.ArtistMap[newA.Name] = newA
+					h.ArtistByID[newA.ID] = newA
 					feat = append(feat, newA)
 				}
 			}
 		}
+
+		if len(feat) == 0 {
+			continue
+		}
+
+		// --- Step 3: record the valid collaborative track ---
+		// Will only get to this step if 1. The track contains a.Name
+		// 2. There are other featured artists
 		tracks = append(tracks, newTrack(a, item.Name, "", item.ID, feat))
 	}
-	log.Printf("Created %d tracks for %s", len(tracks), a.Name)
+	// log.Printf("Created %d tracks for %s", len(tracks), a.Name)
 	return tracks, h
 }
 

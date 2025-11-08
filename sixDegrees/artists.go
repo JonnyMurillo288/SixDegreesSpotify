@@ -69,7 +69,7 @@ func InputArtist(name string) *Artists {
 		a.Genres[g]++
 	}
 
-	log.Printf("Loaded artist: %s (ID %s)", a.Name, a.ID)
+	// log.Printf("Loaded artist: %s (ID %s)", a.Name, a.ID)
 	return a
 }
 

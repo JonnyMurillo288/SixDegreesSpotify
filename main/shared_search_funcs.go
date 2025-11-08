@@ -3,7 +3,6 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -105,9 +104,6 @@ func fetchAlbumTracksCached(a *sixdegrees.Artists, h *sixdegrees.Helper, albumID
 	cache.mu.RLock()
 	if data, ok := cache.albumTracks.Get(albumID); ok {
 		cache.mu.RUnlock()
-		if h != nil {
-			fmt.Printf("Got cached album tracks for %s (album %s)\n", a.Name, albumID)
-		}
 		return data.([]byte), nil
 	}
 	cache.mu.RUnlock()
@@ -207,7 +203,7 @@ func hasFeatured(tracks []sixdegrees.Track) bool {
 // Enrichment (fixed)
 // ---------------------------
 
-func (storeConn2 *Store) enrichArtist(
+func enrichArtist(
 	a *sixdegrees.Artists,
 	h *sixdegrees.Helper,
 	target string,
@@ -216,6 +212,7 @@ func (storeConn2 *Store) enrichArtist(
 	limit *int,
 	offline bool,
 ) error {
+	fmt.Println("Enriching artist:", a.Name)
 	// If offline and we already have *featured* neighbors, skip
 	if offline && len(a.Tracks) > 0 && hasFeatured(a.Tracks) {
 		if verbose {
@@ -259,46 +256,51 @@ func (storeConn2 *Store) enrichArtist(
 				break
 			}
 
-			// Ensure album exists for FK
-			_ = storeConn2.UpsertAlbum(context.Background(), DBAlbum{
-				ID:              al,
-				PrimaryArtistID: sqlNullString(a.ID),
-			})
+			// // Ensure album exists for FK
+			// _ = storeConn2.UpsertAlbum(context.Background(), DBAlbum{
+			// 	ID:              al,
+			// 	PrimaryArtistID: sqlNullString(a.ID),
+			// })
 
-			tracksBytes, err := fetchAlbumTracksCached(a, h, al)
+			tracksBytes, err := fetchAlbumTracksCached(a, nil, al)
 			if err != nil {
 				continue
 			}
-
-			T, _ := a.CreateTracks(tracksBytes, h)
+			fmt.Println("Fetched tracks for album", al, "for artist", a.Name)
+			T, _ := a.CreateTracks(tracksBytes, nil)
 			if len(T) == 0 {
 				continue
 			}
+			fmt.Println("Created", len(T), "tracks for artist", a.Name)
 
-			a.Tracks = append(a.Tracks, T...)
-
-			// Persist tracks & relationships
 			for _, t := range T {
-				dba := createDBTrack(t, al)
-				if err := storeConn2.UpsertTrack(context.Background(), dba); err != nil && verbose {
-					log.Printf("warning: upsert track %s: %v", t.Name, err)
-				}
-				if t.Artist != nil && t.Artist.ID != "" {
-					_ = storeConn2.UpsertArtist(context.Background(), createDBArtist(*t.Artist))
-					_ = storeConn2.AddTrackArtist(context.Background(), t.ID, t.Artist.ID, "primary")
-				}
-				for _, f := range t.Featured {
-					if f == nil || f.ID == "" {
-						continue
-					}
-					_ = storeConn2.UpsertArtist(context.Background(), createDBArtist(*f))
-					_ = storeConn2.AddTrackArtist(context.Background(), t.ID, f.ID, "featured")
+				if len(t.Featured) > 0 {
+					a.Tracks = append(a.Tracks, t)
 				}
 			}
+
+			// Persist tracks & relationships
+			// for _, t := range T {
+			// 	// dba := createDBTrack(t, al)
+			// 	// if err := storeConn2.UpsertTrack(context.Background(), dba); err != nil && verbose {
+			// 	// 	log.Printf("warning: upsert track %s: %v", t.Name, err)
+			// 	// }
+			// 	// if t.Artist != nil && t.Artist.ID != "" {
+			// 	// 	_ = storeConn2.UpsertArtist(context.Background(), createDBArtist(*t.Artist))
+			// 	// 	_ = storeConn2.AddTrackArtist(context.Background(), t.ID, t.Artist.ID, "primary")
+			// 	// }
+			// 	for _, f := range t.Featured {
+			// 		// if f == nil || f.ID == "" {
+			// 		// 	continue
+			// 		// }
+			// 		// _ = storeConn2.UpsertArtist(context.Background(), createDBArtist(*f))
+			// 		// _ = storeConn2.AddTrackArtist(context.Background(), t.ID, f.ID, "featured")
+			// 	}
+			// }
 		}
 	}
 
-	time.Sleep(100 * time.Millisecond) // gentle throttle
+	time.Sleep(10 * time.Millisecond) // gentle throttle
 	return nil
 }
 
