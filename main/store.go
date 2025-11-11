@@ -513,6 +513,31 @@ func (s *Store) ListAlbumsByArtistID(ctx context.Context, artistID string, limit
 	return out, rows.Err()
 }
 
+func (s *Store) ListTracksByAlbumID(ctx context.Context, album_id string) ([]DBTrack, error) {
+	if album_id == "" {
+		return nil, errors.New("artistID required")
+	}
+
+	q := `SELECT DISTINCT id, name, album_id, primary_artist_id
+		FROM tracks 
+		WHERE album_id = ?
+		`
+	rows, err := s.DB.QueryContext(ctx, q, album_id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DBTrack
+	for rows.Next() {
+		var a DBTrack
+		if err := rows.Scan(&a.ID, &a.Name, &a.AlbumID, &a.PrimaryArtistID); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListFeaturedArtistsForTrack(ctx context.Context, trackID string) ([]DBArtist, error) {
 	if trackID == "" {
 		return nil, errors.New("trackID required")

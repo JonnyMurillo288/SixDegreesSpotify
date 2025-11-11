@@ -20,17 +20,6 @@ func keyA(a *sixdegrees.Artists) (id, name string) {
 func RunSearchOptsBFS(start, target *sixdegrees.Artists, maxDepth int, verbose bool, limit *int, offline bool,
 	enrichFn func(*sixdegrees.Artists, *sixdegrees.Helper, string, *bool, bool, *int, bool) error,
 ) (*sixdegrees.Helper, []string, []sixdegrees.EdgeSnap, bool) {
-	// var storeConn *Store
-	// if store == nil {
-	// 	storeConn, err = Open("")
-	// 	if err != nil {
-	// 		return nil, nil, nil, false
-	// 	}
-	// 	defer storeConn.Close()
-	// } else {
-	// 	storeConn = store
-	// }
-
 	h := sixdegrees.NewHelper()
 	h.ArtistByID[start.ID] = start
 	h.IDByName[start.Name] = start.ID

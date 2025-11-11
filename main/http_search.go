@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,7 +16,15 @@ import (
 // SearchArtists runs the full pipeline to compute a collaboration path between two artists.
 // It mirrors the CLI logic but returns structured data for HTTP.
 func SearchArtists(start, target string, depth, limit int, offline bool) (int, []struct{ From, Track, To, TrackID, TrackURL string }, string, error) {
+	var store *Store
 	var err error
+
+	store, err = Open("")
+	if err != nil {
+		return 1, nil, "", err
+	}
+	defer store.Close()
+
 	var switchingArtist bool
 	var find = target       // to match CLI variable naming
 	switchingArtist = false // reset switchingArtist for each call
@@ -45,20 +55,32 @@ func SearchArtists(start, target string, depth, limit int, offline bool) (int, [
 	// 	startArtist = sixdegrees.CreateArtists(startArtistDBA.Name, startArtistDBA.ID)
 	// }
 
+	// Try to get from the database first
+	startArtistDBA, err := store.FindArtistByName(context.Background(), start)
+	if err != nil {
+		gotArtist = false
+		fmt.Printf("Error with finding artist: %s in the database", start)
+	}
+	if err == nil {
+		gotArtist = true
+		fmt.Printf("startArtistDBA: %s\n", startArtistDBA.Name)
+		startArtist = sixdegrees.CreateArtists(startArtistDBA.Name, startArtistDBA.ID)
+	}
+
 	// If we are online mode or we did not get the artist, run API
 	if !offline || !gotArtist {
 		fmt.Printf("Going to get the %s from Spotify API\n", start)
 		startArtist = sixdegrees.InputArtist(start)
-		// dba := DBArtist{
-		// 	ID:         startArtist.ID,
-		// 	Name:       startArtist.Name,
-		// 	Popularity: sql.NullInt64{Int64: int64(startArtist.Popularity), Valid: startArtist.Popularity > 0},
-		// 	Genres:     startArtist.Genres,
-		// }
+		dba := DBArtist{
+			ID:         startArtist.ID,
+			Name:       startArtist.Name,
+			Popularity: sql.NullInt64{Int64: int64(startArtist.Popularity), Valid: startArtist.Popularity > 0},
+			Genres:     startArtist.Genres,
+		}
 
-		// if err := store.UpsertArtist(context.Background(), dba); err != nil {
-		// 	log.Fatalf("Upsert failed: %v", err)
-		// }
+		if err := store.UpsertArtist(context.Background(), dba); err != nil {
+			log.Fatalf("Upsert failed: %v", err)
+		}
 	}
 
 	if startArtist.ID == "" {
@@ -76,20 +98,32 @@ func SearchArtists(start, target string, depth, limit int, offline bool) (int, [
 	// 	targetArtist = sixdegrees.CreateArtists(targetArtistDBA.Name, targetArtistDBA.ID)
 	// }
 
+	gotArtist = true
+	targetArtistDBA, err := store.FindArtistByName(context.Background(), find)
+	if err != nil {
+		gotArtist = false
+		fmt.Printf("Error with finding artist: %s in the database", find)
+	}
+	if err == nil {
+		gotArtist = true
+		fmt.Printf("startArtistDBA: %s\n", targetArtistDBA.Name)
+		targetArtist = sixdegrees.CreateArtists(targetArtistDBA.Name, targetArtistDBA.ID)
+	}
+
 	// If we are online mode or we did not get the artist, run API
 	if !offline || !gotArtist {
 		fmt.Printf("Going to get the %s from Spotify API\n", target)
 		targetArtist = sixdegrees.InputArtist(find)
-		// dba := DBArtist{
-		// 	ID:         targetArtist.ID,
-		// 	Name:       targetArtist.Name,
-		// 	Popularity: sql.NullInt64{Int64: int64(targetArtist.Popularity), Valid: startArtist.Popularity > 0},
-		// 	Genres:     targetArtist.Genres,
-		// }
+		dba := DBArtist{
+			ID:         targetArtist.ID,
+			Name:       targetArtist.Name,
+			Popularity: sql.NullInt64{Int64: int64(targetArtist.Popularity), Valid: startArtist.Popularity > 0},
+			Genres:     targetArtist.Genres,
+		}
 
-		// if err := store.UpsertArtist(context.Background(), dba); err != nil {
-		// 	log.Fatalf("Upsert failed: %v", err)
-		// }
+		if err := store.UpsertArtist(context.Background(), dba); err != nil {
+			log.Fatalf("Upsert failed: %v", err)
+		}
 	}
 
 	// Ensure startArtist is the *less popular* one
@@ -101,20 +135,9 @@ func SearchArtists(start, target string, depth, limit int, offline bool) (int, [
 		startArtist, targetArtist = targetArtist, startArtist
 	}
 
-	// Check if there is tracks for the artist in the DB, if not then Call Spotify API
-	// dbTracks, err := store.ListTracksByArtistID(context.Background(), startArtist.ID, 1e6)
-	// if err != nil {
-	// 	fmt.Printf("Error List TracksByArtistID %s", err)
-	// }
-	// t, err := store.DBTracksToTracks(dbTracks)
-	// fmt.Printf("main.go Line 148: Got %d tracks from ListTracksByArtist for %s\n", len(t), startArtist.Name)
-	// if no DBTracks or error in getting the DB tracks
-	// if (!offline && len(dbTracks) == 0) || err != nil {
-
 	// Run the connection search
-
 	fmt.Println("Running BFS Search...")
-	helper, path, songs, ok := RunSearchOptsBFS(startArtist, targetArtist, depth, verbose, &limit, offline, enrichArtist)
+	helper, path, songs, ok := RunSearchOptsBFS(startArtist, targetArtist, depth, verbose, &limit, offline, store.enrichArtist)
 
 	if !ok || len(path) == 0 {
 		if depth >= 0 {
