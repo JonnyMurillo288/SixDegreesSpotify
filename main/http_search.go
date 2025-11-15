@@ -20,6 +20,7 @@ func SearchArtists(start, target string, depth, limit int, offline bool) (int, [
 	var err error
 
 	store, err = Open("")
+	store.Migrate(context.Background())
 	if err != nil {
 		return 1, nil, "", err
 	}

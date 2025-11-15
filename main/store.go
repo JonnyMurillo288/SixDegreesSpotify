@@ -25,15 +25,10 @@ type Store struct {
 
 // createDBTrack builds a DBTrack struct from a sixdegrees.Track
 func createDBTrack(t sixdegrees.Track, album string) DBTrack {
-	var albumID sql.NullString
-	if album != "" {
-		albumID = sql.NullString{String: album, Valid: false} // don’t force FK if uncertain
-	}
-
 	return DBTrack{
 		ID:              t.ID,
 		Name:            t.Name,
-		AlbumID:         albumID,
+		AlbumID:         sql.NullString{String: album, Valid: album != ""},
 		PrimaryArtistID: sql.NullString{String: t.Artist.ID, Valid: t.Artist.ID != ""},
 	}
 }
@@ -140,6 +135,14 @@ func (s *Store) Migrate(ctx context.Context) error {
 			FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE ON UPDATE CASCADE,
 			FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE ON UPDATE CASCADE
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+		`CREATE TABLE IF NOT EXISTS album_artists (
+			album_id VARCHAR(64) NOT NULL,
+			artist_id VARCHAR(64) NOT NULL,
+			PRIMARY KEY (album_id, artist_id),
+			INDEX idx_album_artists_artist (album_id)
+			FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE ON UPDATE CASCADE
+			FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE ON UPDATE CASCADE
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
 		`CREATE TABLE IF NOT EXISTS MainHelper (
 			ArtistID VARCHAR(50) NOT NULL,
 			ArtistName VARCHAR(255),
@@ -260,6 +263,18 @@ func (s *Store) AddTrackArtist(ctx context.Context, trackID, artistID, role stri
 		ON DUPLICATE KEY UPDATE role=VALUES(role)`
 	_, err := s.DB.ExecContext(ctx, q, trackID, artistID, role)
 	return err
+}
+
+func (s *Store) AddAlbumArtist(ctx context.Context, albumID, artistID string) error {
+	if albumID == "" || artistID == "" {
+		return errors.New("AlbumID and artistID required")
+	}
+	q := `INSERT INTO album_artists (album_id, artist_id)
+		VALUES (?,?)
+		ON DUPLICATE KEY UPDATE role=VALUES(role)`
+	_, err := s.DB.ExecContext(ctx, q, albumID, artistID)
+	return err
+
 }
 
 // ========================= Convenience Converters ========================= //

@@ -35,7 +35,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// ---- Templates ----
-	tmpl := template.Must(template.ParseFiles("templates/index.html"))
+	tmpl := template.Must(template.ParseFiles("templates/graph.html"))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -81,7 +81,7 @@ func main() {
 		if req.Depth == 0 {
 			req.Depth = -1
 		}
-		limit := 1000 // or make this configurable later
+		limit := 10 // or make this configurable later
 
 		// ctx := context.Background()
 		// store, err := Open("") // your DB open function; pass path/config as needed

@@ -147,12 +147,9 @@ func (a *Artists) CreateTracks(data []byte, h *Helper) ([]Track, *Helper) {
 	if h == nil {
 		h = NewHelper()
 	}
-
 	var parsed trackResponse
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		log.Printf("CreateTracks: failed to parse tracks for %s: %v", a.Name, err)
-		return nil, h
-	}
+	_ = json.Unmarshal(data, &parsed)
+
 	// log.Printf("Parsed %d items for %s", len(parsed.Items), a.Name)
 	// fmt.Println("Parsed", len(parsed.Items), "items for", a.Name)
 	if len(parsed.Items) == 0 {

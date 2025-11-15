@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SixDegreeSpotify</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    h1 { margin: 0; font-size: 1.5rem; }
+    .actions { display: flex; gap: .5rem; }
+    .btn { display: inline-block; padding: .5rem .75rem; border: 1px solid #ccc; border-radius: 6px; text-decoration: none; cursor: pointer; background: #000; color: #fff; }
+    form { margin-top: 1.25rem; max-width: 720px; }
+    label { display: block; margin-top: .75rem; }
+    input[type=text], input[type=number] { width: 100%; padding: .6rem .7rem; border: 1px solid #ccc; border-radius: 6px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    .muted { color: #666; }
+    #results { margin-top: 1.25rem; }
+    ol { padding-left: 1.25rem; }
+    .error { color: #b00020; }
+    .spinner { display: none; margin-top: .75rem; }
+
+    /* GRAPH --- */
+    #graph {
+      margin-top: 2rem;
+      border: 1px solid #444;
+      height: 500px;
+      background: #111;
+    }
+    .node text {
+      fill: #fff;
+      font-size: 10px;
+      pointer-events: none;
+    }
+    .node circle {
+      stroke: #fff;
+      stroke-width: 1px;
+    }
+    .link {
+      stroke: #555;
+      stroke-opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SixDegreeSpotify</h1>
+    <div class="actions">
+      <a class="btn" href="/auth">Login with Spotify</a>
+      <a class="btn" href="/status" target="_blank">Status</a>
+    </div>
+  </header>
+
+  <p class="muted">Find a collaboration path between two artists using Spotify data.</p>
+
+  <form id="searchForm">
+    <div class="row">
+      <label>
+        Start Artist
+        <input id="startArtist" type="text" name="start" placeholder="Eminem" required />
+      </label>
+      <label>
+        Target Artist
+        <input id="targetArtist" type="text" name="target" placeholder="Taylor Swift" required />
+      </label>
+    </div>
+    <div class="row">
+      <label>
+        Max Depth (optional)
+        <input id="depth" type="number" name="depth" min="-1" step="1" value="-1" />
+      </label>
+    </div>
+    <button class="btn" type="submit">Search</button>
+    <div id="spinner" class="spinner">Searching…</div>
+    <div class="muted">Can take up to 30 minutes to process.</div>
+    <div id="elapsedTimeDisplay" class="muted" style="margin-top:0.5rem;">00:00:00</div>
+  </form>
+
+  <div id="results"></div>
+
+  <!-- GRAPH --- container -->
+  <div id="graph"></div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+
+  <script>
+    // Timer
+    let elapsedTimeInterval = null;
+
+    // GRAPH --- Build nodes + edges
+    function buildGraph(path) {
+      const nodes = [];
+      const edges = [];
+      const added = new Set();
+
+      function addNode(id, name) {
+        if (!added.has(id)) {
+          nodes.push({ id, name });
+          added.add(id);
+        }
+      }
+
+      path.forEach((hop, i) => {
+        const from = hop.from;
+        const to = hop.to;
+        const track = hop.track;
+
+        addNode(from, from);
+        addNode(to, to);
+        addNode(track, track);
+
+        edges.push({ source: from, target: track });
+        edges.push({ source: track, target: to });
+      });
+
+      return { nodes, edges };
+    }
+
+    // GRAPH --- D3 render
+    function renderGraph(graphData) {
+      d3.select("#graph").selectAll("*").remove();
+
+      const svg = d3.select("#graph")
+        .append("svg")
+        .attr("width", "100%")
+        .attr("height", "100%");
+
+      const width = document.getElementById("graph").clientWidth;
+      const height = document.getElementById("graph").clientHeight;
+
+      const simulation = d3.forceSimulation(graphData.nodes)
+        .force("link", d3.forceLink(graphData.edges).id(d => d.id).distance(90))
+        .force("charge", d3.forceManyBody().strength(-220))
+        .force("center", d3.forceCenter(width / 2, height / 2));
+
+      const link = svg.append("g")
+        .selectAll("line")
+        .data(graphData.edges)
+        .enter()
+        .append("line")
+        .attr("class", "link")
+        .style("stroke-width", 1.5);
+
+      const node = svg.append("g")
+        .selectAll("g")
+        .data(graphData.nodes)
+        .enter()
+        .append("g")
+        .attr("class", "node");
+
+      node.append("circle")
+        .attr("r", 10)
+        .style("fill", "#1DB954"); // Spotify green
+
+      node.append("text")
+        .text(d => d.name)
+        .attr("dx", 14)
+        .attr("dy", 4);
+
+      simulation.on("tick", () => {
+        link
+          .attr("x1", d => d.source.x)
+          .attr("y1", d => d.source.y)
+          .attr("x2", d => d.target.x)
+          .attr("y2", d => d.target.y);
+
+        node
+          .attr("transform", d => `translate(${d.x},${d.y})`);
+      });
+    }
+
+    async function runSearch(form) {
+      const start = document.getElementById("startArtist").value.trim();
+      const target = document.getElementById("targetArtist").value.trim();
+      const depth = Number(document.getElementById("depth").value || -1);
+      const resultsDiv = document.getElementById("results");
+      const spinner = document.getElementById("spinner");
+      const displayElement = document.getElementById('elapsedTimeDisplay');
+
+      if (!start || !target) {
+        resultsDiv.innerHTML = '<p class="error">Start and Target are required.</p>';
+        return;
+      }
+
+      resultsDiv.innerHTML = '';
+      spinner.style.display = 'inline-block';
+      const startTime = Date.now();
+
+      if (elapsedTimeInterval) clearInterval(elapsedTimeInterval);
+      elapsedTimeInterval = setInterval(() => {
+        const diff = Date.now() - startTime;
+        const hours = Math.floor(diff / 3600000);
+        const minutes = Math.floor((diff % 3600000) / 60000);
+        const seconds = Math.floor((diff % 60000) / 1000);
+        displayElement.textContent =
+          `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      }, 1000);
+
+      try {
+        const res = await fetch('/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ start, target, depth }),
+        });
+
+        spinner.style.display = 'none';
+        clearInterval(elapsedTimeInterval);
+
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+
+        if (data.message) {
+          resultsDiv.innerHTML = `<p class="muted">${data.message}</p>`;
+          return;
+        }
+
+        // Render list (unchanged)
+        const header = document.createElement('div');
+        header.innerHTML = `
+          <p><strong>Start:</strong> ${data.start}<br>
+          <strong>Target:</strong> ${data.target}<br>
+          <strong>Hops:</strong> ${data.hops}</p>
+        `;
+
+        const list = document.createElement('ol');
+        const trackIDs = [];
+
+        for (const s of data.path) {
+          const from = s.from ?? '';
+          const to = s.to ?? '';
+          const trackName = s.track ?? 'Unknown Track';
+          const trackID = s.trackID ?? '';
+          const trackURL = s.trackURL ?? '';
+
+          if (trackID) trackIDs.push(trackID);
+
+          const li = document.createElement('li');
+          li.innerHTML = `
+            <div style="display:flex;align-items:center;gap:1rem;">
+              <div class="img-placeholder" style="width:64px;height:64px;background:#ccc;border-radius:4px;"></div>
+              <div>
+                ${trackURL
+                  ? `<a href="${trackURL}" target="_blank"><strong>${trackName}</strong></a>`
+                  : `<strong>${trackName}</strong>`}
+                <br><small>${from ? `${from} → ${to}` : ''}</small>
+              </div>
+            </div>`;
+          list.appendChild(li);
+
+          if (trackURL) {
+            const img = document.createElement('img');
+            img.src = trackURL;
+            img.width = 64;
+            img.height = 64;
+            img.style.borderRadius = '4px';
+            li.querySelector('.img-placeholder').replaceWith(img);
+          }
+        }
+
+        resultsDiv.innerHTML = '';
+        resultsDiv.appendChild(header);
+        resultsDiv.appendChild(list);
+
+        // GRAPH --- render
+        const graphData = buildGraph(data.path);
+        renderGraph(graphData);
+
+      } catch (err) {
+        spinner.style.display = 'none';
+        clearInterval(elapsedTimeInterval);
+        resultsDiv.innerHTML = `<p class="error">Request failed: ${err}</p>`;
+      }
+    }
+
+    document.getElementById('searchForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      runSearch(e.target);
+    });
+  </script>
+</body>
+</html>
