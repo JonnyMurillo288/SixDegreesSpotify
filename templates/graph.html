@@ -6,42 +6,75 @@
   <title>SixDegreeSpotify</title>
   <style>
     :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; }
-    header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      margin: 2rem;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
     h1 { margin: 0; font-size: 1.5rem; }
     .actions { display: flex; gap: .5rem; }
-    .btn { display: inline-block; padding: .5rem .75rem; border: 1px solid #ccc; border-radius: 6px; text-decoration: none; cursor: pointer; background: #000; color: #fff; }
+    .btn {
+      display: inline-block;
+      padding: .5rem .75rem;
+      border-radius: 6px;
+      text-decoration: none;
+      cursor: pointer;
+      background: #000;
+      color: #fff;
+    }
     form { margin-top: 1.25rem; max-width: 720px; }
     label { display: block; margin-top: .75rem; }
-    input[type=text], input[type=number] { width: 100%; padding: .6rem .7rem; border: 1px solid #ccc; border-radius: 6px; }
+    input[type=text], input[type=number] {
+      width: 100%;
+      padding: .6rem .7rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
     .muted { color: #666; }
     #results { margin-top: 1.25rem; }
-    ol { padding-left: 1.25rem; }
     .error { color: #b00020; }
-    .spinner { display: none; margin-top: .75rem; }
+    .spinner { display: none; margin-left: 0.75rem; }
 
-    /* GRAPH --- */
+    /* GRAPH */
     #graph {
       margin-top: 2rem;
       border: 1px solid #444;
       height: 500px;
-      background: #111;
     }
-    .node text {
-      fill: #fff;
-      font-size: 10px;
+    #edge-tooltip {
+      position: absolute;
+      background: #000;
+      border: 1px solid #444;
+      padding: 6px;
+      border-radius: 6px;
+      display: none;
       pointer-events: none;
+      z-index: 9999;
     }
-    .node circle {
-      stroke: #fff;
-      stroke-width: 1px;
+    #edge-tooltip img {
+      width: 120px;
+      height: 120px;
+      border-radius: 5px;
+      object-fit: cover;
     }
-    .link {
-      stroke: #555;
-      stroke-opacity: 0.8;
+    #edge-tooltip .title {
+      color: #fff;
+      font-size: 12px;
+      margin-top: 4px;
+      text-align: center;
     }
   </style>
+
+  <!-- Graphology + Sigma v2 (ONLY) -->
+  <script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+  <script src="https://unpkg.com/sigma@2.3.0/build/sigma.min.js"></script>
 </head>
 <body>
   <header>
@@ -72,142 +105,171 @@
       </label>
     </div>
     <button class="btn" type="submit">Search</button>
-    <div id="spinner" class="spinner">Searching…</div>
+    <span id="spinner" class="spinner">Searching…</span>
     <div class="muted">Can take up to 30 minutes to process.</div>
-    <div id="elapsedTimeDisplay" class="muted" style="margin-top:0.5rem;">00:00:00</div>
   </form>
 
   <div id="results"></div>
 
-  <!-- GRAPH --- container -->
+  <!-- GRAPH container -->
   <div id="graph"></div>
 
-  <script src="https://d3js.org/d3.v7.min.js"></script>
-
   <script>
-    // Timer
-    let elapsedTimeInterval = null;
+    // -------------------------------
+    // GLOBALS
+    // -------------------------------
+    let graph = new graphology.Graph();
+    let renderer = null;
 
-    // GRAPH --- Build nodes + edges
-    function buildGraph(path) {
-      const nodes = [];
-      const edges = [];
-      const added = new Set();
+    const ARTIST_COLOR = "#2ecc71";
+    const START_COLOR  = "#2779bd";
+    const TARGET_COLOR = "#c53030";
+    const EDGE_COLOR   = "#e74c3c";
 
-      function addNode(id, name) {
-        if (!added.has(id)) {
-          nodes.push({ id, name });
-          added.add(id);
-        }
+    // -------------------------------
+    // Helpers: layout artists along a line
+    // -------------------------------
+    function computeArtistPositions(path) {
+      const pos = new Map();
+      if (!path || path.length === 0) return pos;
+
+      let index = 0;
+
+      const first = path[0];
+      if (!pos.has(first.from)) pos.set(first.from, index++);
+      if (!pos.has(first.to))   pos.set(first.to,   index++);
+
+      for (let i = 1; i < path.length; i++) {
+        const s = path[i];
+        if (!pos.has(s.to)) pos.set(s.to, index++);
+        if (!pos.has(s.from)) pos.set(s.from, index++);
       }
 
-      path.forEach((hop, i) => {
-        const from = hop.from;
-        const to = hop.to;
-        const track = hop.track;
-
-        addNode(from, from);
-        addNode(to, to);
-        addNode(track, track);
-
-        edges.push({ source: from, target: track });
-        edges.push({ source: track, target: to });
-      });
-
-      return { nodes, edges };
+      return pos;
     }
 
-    // GRAPH --- D3 render
-    function renderGraph(graphData) {
-      d3.select("#graph").selectAll("*").remove();
+    function ensureArtistNode(name, start, target, posMap) {
+      if (graph.hasNode(name)) return;
 
-      const svg = d3.select("#graph")
-        .append("svg")
-        .attr("width", "100%")
-        .attr("height", "100%");
+      let color = ARTIST_COLOR;
+      let size = 8;
 
-      const width = document.getElementById("graph").clientWidth;
-      const height = document.getElementById("graph").clientHeight;
+      if (name === start) { color = START_COLOR; size = 12; }
+      else if (name === target) { color = TARGET_COLOR; size = 12; }
 
-      const simulation = d3.forceSimulation(graphData.nodes)
-        .force("link", d3.forceLink(graphData.edges).id(d => d.id).distance(90))
-        .force("charge", d3.forceManyBody().strength(-220))
-        .force("center", d3.forceCenter(width / 2, height / 2));
+      let x = Math.random();
+      let y = Math.random();
 
-      const link = svg.append("g")
-        .selectAll("line")
-        .data(graphData.edges)
-        .enter()
-        .append("line")
-        .attr("class", "link")
-        .style("stroke-width", 1.5);
+      if (posMap && posMap.has(name)) {
+        const i = posMap.get(name);
+        x = i * 2;
+        y = 0.5 * Math.sin(i);
+      }
 
-      const node = svg.append("g")
-        .selectAll("g")
-        .data(graphData.nodes)
-        .enter()
-        .append("g")
-        .attr("class", "node");
-
-      node.append("circle")
-        .attr("r", 10)
-        .style("fill", "#1DB954"); // Spotify green
-
-      node.append("text")
-        .text(d => d.name)
-        .attr("dx", 14)
-        .attr("dy", 4);
-
-      simulation.on("tick", () => {
-        link
-          .attr("x1", d => d.source.x)
-          .attr("y1", d => d.source.y)
-          .attr("x2", d => d.target.x)
-          .attr("y2", d => d.target.y);
-
-        node
-          .attr("transform", d => `translate(${d.x},${d.y})`);
+      graph.addNode(name, {
+        label: name,
+        size,
+        color,
+        x,
+        y,
       });
     }
 
-    async function runSearch(form) {
+    function addStep(step, start, target, posMap) {
+      const from  = step.from;
+      const to    = step.to;
+      const track = step.track;
+
+      ensureArtistNode(from, start, target, posMap);
+      ensureArtistNode(to,   start, target, posMap);
+
+      const edgeId = `${from}->${to}-${track}`;
+      if (!graph.hasEdge(edgeId)) {
+        graph.addEdgeWithKey(edgeId, from, to, {
+          label: track,
+          size: 2,
+          color: EDGE_COLOR,
+          trackURL: step.trackURL || ""   // <-- FIXED HERE
+        });
+      }
+    }
+
+    function drawPath(path, start, target) {
+      graph = new graphology.Graph();
+
+      const container = document.getElementById("graph");
+      container.innerHTML = "";
+
+      const posMap = computeArtistPositions(path);
+
+      path.forEach(step => addStep(step, start, target, posMap));
+
+      renderer = new Sigma(graph, container, {
+        renderLabels: true,
+        renderEdgeLabels: true,
+        labelDensity: 0.7,
+        labelColor: { color: "#ffffff" },
+      });
+
+      const tooltip = document.getElementById("edge-tooltip");
+
+      renderer.on("enterEdge", ({ edge }) => {
+        const attr = graph.getEdgeAttributes(edge);
+        const trackName = attr.label || "";
+        const trackURL = attr.trackURL || "";
+
+        if (!trackURL) return;
+
+        tooltip.innerHTML = `
+          <img src="${trackURL}">
+          <div class="title">${trackName}</div>
+        `;
+        tooltip.style.display = "block";
+      });
+
+      renderer.on("leaveEdge", () => {
+        tooltip.style.display = "none";
+      });
+
+      renderer.on("mousemove", (e) => {
+        tooltip.style.left = e.event.x + 15 + "px";
+        tooltip.style.top = e.event.y + 15 + "px";
+      });
+    }
+
+    // -------------------------------
+    // Search
+    // -------------------------------
+    async function runSearch() {
       const start = document.getElementById("startArtist").value.trim();
       const target = document.getElementById("targetArtist").value.trim();
       const depth = Number(document.getElementById("depth").value || -1);
+
       const resultsDiv = document.getElementById("results");
       const spinner = document.getElementById("spinner");
-      const displayElement = document.getElementById('elapsedTimeDisplay');
 
       if (!start || !target) {
         resultsDiv.innerHTML = '<p class="error">Start and Target are required.</p>';
         return;
       }
 
-      resultsDiv.innerHTML = '';
-      spinner.style.display = 'inline-block';
-      const startTime = Date.now();
-
-      if (elapsedTimeInterval) clearInterval(elapsedTimeInterval);
-      elapsedTimeInterval = setInterval(() => {
-        const diff = Date.now() - startTime;
-        const hours = Math.floor(diff / 3600000);
-        const minutes = Math.floor((diff % 3600000) / 60000);
-        const seconds = Math.floor((diff % 60000) / 1000);
-        displayElement.textContent =
-          `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-      }, 1000);
+      resultsDiv.innerHTML = "";
+      spinner.style.display = "inline";
 
       try {
-        const res = await fetch('/search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const res = await fetch("/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ start, target, depth }),
         });
 
-        spinner.style.display = 'none';
-        clearInterval(elapsedTimeInterval);
+        spinner.style.display = "none";
 
-        if (!res.ok) throw new Error(await res.text());
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || res.statusText);
+        }
+
         const data = await res.json();
 
         if (data.message) {
@@ -215,68 +277,25 @@
           return;
         }
 
-        // Render list (unchanged)
-        const header = document.createElement('div');
-        header.innerHTML = `
+        resultsDiv.innerHTML = `
           <p><strong>Start:</strong> ${data.start}<br>
-          <strong>Target:</strong> ${data.target}<br>
-          <strong>Hops:</strong> ${data.hops}</p>
-        `;
+             <strong>Target:</strong> ${data.target}<br>
+             <strong>Hops:</strong> ${data.hops}</p>`;
 
-        const list = document.createElement('ol');
-        const trackIDs = [];
-
-        for (const s of data.path) {
-          const from = s.from ?? '';
-          const to = s.to ?? '';
-          const trackName = s.track ?? 'Unknown Track';
-          const trackID = s.trackID ?? '';
-          const trackURL = s.trackURL ?? '';
-
-          if (trackID) trackIDs.push(trackID);
-
-          const li = document.createElement('li');
-          li.innerHTML = `
-            <div style="display:flex;align-items:center;gap:1rem;">
-              <div class="img-placeholder" style="width:64px;height:64px;background:#ccc;border-radius:4px;"></div>
-              <div>
-                ${trackURL
-                  ? `<a href="${trackURL}" target="_blank"><strong>${trackName}</strong></a>`
-                  : `<strong>${trackName}</strong>`}
-                <br><small>${from ? `${from} → ${to}` : ''}</small>
-              </div>
-            </div>`;
-          list.appendChild(li);
-
-          if (trackURL) {
-            const img = document.createElement('img');
-            img.src = trackURL;
-            img.width = 64;
-            img.height = 64;
-            img.style.borderRadius = '4px';
-            li.querySelector('.img-placeholder').replaceWith(img);
-          }
-        }
-
-        resultsDiv.innerHTML = '';
-        resultsDiv.appendChild(header);
-        resultsDiv.appendChild(list);
-
-        // GRAPH --- render
-        const graphData = buildGraph(data.path);
-        renderGraph(graphData);
+        drawPath(data.path, data.start, data.target);
 
       } catch (err) {
-        spinner.style.display = 'none';
-        clearInterval(elapsedTimeInterval);
+        spinner.style.display = "none";
         resultsDiv.innerHTML = `<p class="error">Request failed: ${err}</p>`;
       }
     }
 
-    document.getElementById('searchForm').addEventListener('submit', (e) => {
+    document.getElementById("searchForm").addEventListener("submit", (e) => {
       e.preventDefault();
-      runSearch(e.target);
+      runSearch();
     });
   </script>
+
+  <div id="edge-tooltip"></div>
 </body>
 </html>

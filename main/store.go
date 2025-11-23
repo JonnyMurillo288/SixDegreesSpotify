@@ -136,13 +136,20 @@ func (s *Store) Migrate(ctx context.Context) error {
 			FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE ON UPDATE CASCADE
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
 		`CREATE TABLE IF NOT EXISTS album_artists (
-			album_id VARCHAR(64) NOT NULL,
+			album_id  VARCHAR(64) NOT NULL,
 			artist_id VARCHAR(64) NOT NULL,
+
 			PRIMARY KEY (album_id, artist_id),
-			INDEX idx_album_artists_artist (album_id)
-			FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE ON UPDATE CASCADE
-			FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE ON UPDATE CASCADE
-			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
+
+			INDEX idx_album_artists_album (album_id),
+			INDEX idx_album_artists_artist (artist_id),
+
+			FOREIGN KEY (album_id) REFERENCES albums(id)
+				ON DELETE CASCADE ON UPDATE CASCADE,
+
+			FOREIGN KEY (artist_id) REFERENCES artists(id)
+				ON DELETE CASCADE ON UPDATE CASCADE
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
 		`CREATE TABLE IF NOT EXISTS MainHelper (
 			ArtistID VARCHAR(50) NOT NULL,
 			ArtistName VARCHAR(255),
@@ -267,14 +274,15 @@ func (s *Store) AddTrackArtist(ctx context.Context, trackID, artistID, role stri
 
 func (s *Store) AddAlbumArtist(ctx context.Context, albumID, artistID string) error {
 	if albumID == "" || artistID == "" {
-		return errors.New("AlbumID and artistID required")
+		return errors.New("albumID and artistID required")
 	}
+
 	q := `INSERT INTO album_artists (album_id, artist_id)
-		VALUES (?,?)
-		ON DUPLICATE KEY UPDATE role=VALUES(role)`
+          VALUES (?, ?)
+          ON DUPLICATE KEY UPDATE artist_id = VALUES(artist_id)`
+
 	_, err := s.DB.ExecContext(ctx, q, albumID, artistID)
 	return err
-
 }
 
 // ========================= Convenience Converters ========================= //
@@ -585,10 +593,9 @@ func (s *Store) ListFeaturedArtistsForTrack(ctx context.Context, trackID string)
 
 // ============================ DBA to Spotify Object ============================ //
 
-func (s *Store) DBArtistsToArtists(dbArtists DBArtist) (*sixdegrees.Artists, error) {
-	var artist *sixdegrees.Artists
+func (s *Store) DBArtistsToArtists(dbArtist DBArtist) (*sixdegrees.Artists, error) {
 
-	return sixdegrees.CreateArtists(artist.Name, artist.ID), nil
+	return sixdegrees.CreateArtists(dbArtist.Name, dbArtist.ID), nil
 }
 
 // ============================== Small helpers ============================== //

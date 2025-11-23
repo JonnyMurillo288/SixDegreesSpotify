@@ -1,168 +1,194 @@
 package main
 
 import (
-	"container/heap"
 	"fmt"
 	"log"
-	"strings"
+	"time"
 
 	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 )
 
-func keyA(a *sixdegrees.Artists) (id, name string) {
-	if a == nil {
-		return "", ""
-	}
-	return a.ID, a.Name
-}
+func RunSearchOptsBFS(
+	store *Store,
+	start, target *sixdegrees.Artists,
+	maxDepth int,
+	verbose bool,
+	limit *int,
+	offline bool,
+) (*sixdegrees.Helper, []string, []string, []sixdegrees.Track, int, bool) {
 
-// RunSearchOptsBFS performs a breadth-first (popularity-weighted) traversal between artists.
-func RunSearchOptsBFS(start, target *sixdegrees.Artists, maxDepth int, verbose bool, limit *int, offline bool,
-	enrichFn func(*sixdegrees.Artists, *sixdegrees.Helper, string, *bool, bool, *int, bool) error,
-) (*sixdegrees.Helper, []string, []sixdegrees.EdgeSnap, bool) {
+	if start == nil || start.ID == "" || target == nil || target.ID == "" {
+		return nil, nil, nil, nil, 400, false
+	}
+
+	if start.ID == target.ID {
+		h := sixdegrees.NewHelper()
+		h.ArtistByID[start.ID] = start
+		h.IDByName[start.Name] = start.ID
+		return h, []string{start.Name}, []string{start.ID}, []sixdegrees.Track{}, 200, true
+	}
+
+	if verbose {
+		fmt.Println("=== Starting DIRECT BFS over NeighborProvider ===")
+		fmt.Printf("Start:  %s (%s)\n", start.Name, start.ID)
+		fmt.Printf("Target: %s (%s)\n", target.Name, target.ID)
+	}
+
+	// Limits to prevent runaway searches
+	perArtistLimit := 10
+	if limit != nil && *limit > 0 {
+		perArtistLimit = *limit
+	}
+	if perArtistLimit > 20 {
+		perArtistLimit = 20
+	}
+
+	const maxExpandedArtists = 300
+	const maxSearchDuration = 30 * time.Second
+
+	startTime := time.Now()
+
+	// Helper to store mapping
 	h := sixdegrees.NewHelper()
 	h.ArtistByID[start.ID] = start
 	h.IDByName[start.Name] = start.ID
-	h.DistToID[start.ID] = 0
-	var found bool
-	found = false
 
-	queue := &ArtistQueue{}
-	heap.Init(queue)
-	heap.Push(queue, &ArtistNode{artist: start, depth: 0, popularity: int(start.Popularity)})
+	type queueItem struct {
+		A     *sixdegrees.Artists
+		Depth int
+	}
 
-	visitedArtist := make(map[string]bool) // by artist ID
-	visitedTracks := map[string]bool{"": true}
+	queue := []queueItem{{A: start, Depth: 0}}
+	visited := map[string]bool{start.ID: true}
 
-	fmt.Println("Starting BFS Search from", start.Name, "to", target.Name)
-	for queue.Len() > 0 {
-		node := heap.Pop(queue).(*ArtistNode)
-		current := node.artist
-		curID, curName := keyA(current)
+	prev := make(map[string]string)                 // childID → parentID
+	prevTracks := make(map[string]sixdegrees.Track) // childID → track used
 
-		if visitedArtist[curID] {
-			fmt.Println("Already visited artist", curName, "skipping...")
+	expandedCount := 0
+
+	for len(queue) > 0 {
+		if time.Since(startTime) > maxSearchDuration {
+			if verbose {
+				log.Printf("BFS aborted: exceeded max search duration (%s)", maxSearchDuration)
+			}
+			return h, nil, nil, nil, 504, false
+		}
+
+		if expandedCount >= maxExpandedArtists {
+			if verbose {
+				log.Printf("BFS aborted: expanded too many artists (%d)", maxExpandedArtists)
+			}
+			return h, nil, nil, nil, 504, false
+		}
+
+		item := queue[0]
+		queue = queue[1:]
+
+		if maxDepth > 0 && item.Depth > maxDepth {
 			continue
 		}
 
-		// ... depth checks, enrichArtist (unchanged) ...
 		if verbose {
-			log.Printf("[Depth %d | Queue %d] Exploring %s (%d tracks, pop %d)\n",
-				h.DistToID[current.ID], queue.Len(), current.ID, len(current.Tracks), int(current.Popularity))
+			log.Printf("Expanding %s (%s) at depth %d",
+				item.A.Name, item.A.ID, item.Depth)
 		}
 
-		// Don't enrich beyond max depth
-		if maxDepth >= 0 && h.DistToID[current.ID] >= maxDepth {
+		expandedCount++
+
+		neighbors, status, err := store.NeighborProvider(item.A, perArtistLimit, verbose)
+		if status == 429 {
 			if verbose {
-				fmt.Printf("Reached max depth for %s (%d)\n", current.Name, maxDepth)
+				log.Printf("NeighborProvider rate limited on %s: %v", item.A.Name, err)
 			}
-			visitedArtist[current.ID] = true
+			return h, nil, nil, nil, 429, false
+		}
+		if err != nil {
+			if verbose {
+				log.Printf("NeighborProvider error on %s: %v", item.A.Name, err)
+			}
 			continue
 		}
 
-		// Enrich artist (DB → Cache → API)
-		// if err := storeConn.enrichArtist(current, h, target.Name, &found, verbose, limit, offline); err != nil && verbose {
-		// 	log.Printf("enrichArtist error for %s: %v", current.Name, err)
-		// }
-		if err := enrichFn(current, h, target.Name, &found, verbose, limit, offline); err != nil && verbose {
-			log.Printf("enrichArtist error for %s: %v", current.Name, err)
-		}
-		fmt.Println("Current artist has", len(current.Tracks), "tracks after enrichment.")
-
-		// Early exit if enrichment directly discovered target
-		if found {
-			break
-		}
-
-		for _, tr := range current.Tracks {
-			if verbose {
-				log.Printf("[Depth %d | Queue %d] Exploring %s (%d tracks, pop %d)\n",
-					h.DistToID[current.ID], queue.Len(), current.ID, len(current.Tracks), int(current.Popularity))
-			}
-
-			if visitedTracks[tr.ID] {
+		for _, nb := range neighbors {
+			if nb == nil || nb.Artist == nil || nb.Artist.ID == "" {
 				continue
 			}
-			visitedTracks[tr.ID] = true
+			childID := nb.Artist.ID
 
-			for _, feat := range tr.Featured {
-				if feat == nil {
-					continue
-				}
-				toID, toName := keyA(feat)
-				if toID == "" || toID == curID {
-					continue
-				}
+			// keep helper maps populated
+			if _, ok := h.ArtistByID[childID]; !ok {
+				h.ArtistByID[childID] = nb.Artist
+			}
+			if nb.Artist.Name != "" {
+				h.IDByName[nb.Artist.Name] = childID
+			}
 
-				// verify: feat really is in this track (defensive)
-				valid := false
-				for _, f := range tr.Featured {
-					if f != nil && f.ID == toID {
-						valid = true
-						break
-					}
-				}
-				if !valid {
-					continue
-				}
+			if !visited[childID] {
+				visited[childID] = true
+				prev[childID] = item.A.ID
+				prevTracks[childID] = nb.Track
 
-				// Only discover once by **ID**
-				if _, seen := h.DistToID[toID]; seen {
-					continue
-				}
-
-				// Record immutable snapshot (DO NOT store the Track with pointers)
-				h.PrevID[toID] = curID
-				h.DistToID[toID] = h.DistToID[curID] + 1
-				h.ArtistByID[toID] = feat
-				h.IDByName[toName] = toID
-
-				fmt.Printf("[VERIFY] %s --[%s/%s]--> %s\n",
-					curName, tr.Name, tr.ID, toName)
-
-				h.Evidence[toID] = sixdegrees.EdgeSnap{
-					FromID: curID, FromName: curName,
-					ToID: toID, ToName: toName,
-					TrackID: tr.ID, TrackName: tr.Name,
-					PhotoURL: tr.PhotoURL,
-				}
-
-				if strings.EqualFold(toID, target.ID) || strings.EqualFold(toName, target.Name) {
-					// also snapshot the target explicitly
-					h.PrevID[target.ID] = curID
-					h.Evidence[target.ID] = sixdegrees.EdgeSnap{
-						FromID: curID, FromName: curName,
-						ToID: target.ID, ToName: target.Name,
-						TrackID: tr.ID, TrackName: tr.Name,
+				// found target?
+				if childID == target.ID {
+					if verbose {
+						log.Printf("Found target %s (%s) at depth %d",
+							nb.Artist.Name, childID, item.Depth+1)
 					}
 
-					found = true
-					break
+					pathIDs := reconstructIDPath(prev, start.ID, target.ID)
+
+					pathNames := make([]string, 0, len(pathIDs))
+					for _, id := range pathIDs {
+						if art, ok := h.ArtistByID[id]; ok {
+							pathNames = append(pathNames, art.Name)
+						} else {
+							pathNames = append(pathNames, id)
+						}
+					}
+
+					// reconstruct track path
+					pathTracks := make([]sixdegrees.Track, 0, len(pathIDs)-1)
+					for i := 1; i < len(pathIDs); i++ {
+						pid := pathIDs[i]
+						if t, ok := prevTracks[pid]; ok {
+							pathTracks = append(pathTracks, t)
+						} else {
+							pathTracks = append(pathTracks, sixdegrees.Track{})
+						}
+					}
+
+					return h, pathNames, pathIDs, pathTracks, 200, true
 				}
 
-				heap.Push(queue, &ArtistNode{
-					artist:     feat,
-					depth:      h.DistToID[toID],
-					popularity: int(feat.Popularity),
+				queue = append(queue, queueItem{
+					A:     nb.Artist,
+					Depth: item.Depth + 1,
 				})
 			}
-			if found {
-				break
-			}
 		}
+	}
 
-		visitedArtist[curID] = true
-		if found {
+	if verbose {
+		log.Printf("BFS finished with no path found (expanded %d artists)", expandedCount)
+	}
+	return h, nil, nil, nil, 404, false
+}
+
+// reconstructIDPath rebuilds the path from startID to targetID using prev map.
+func reconstructIDPath(prev map[string]string, startID, targetID string) []string {
+	var path []string
+	for at := targetID; at != ""; at = prev[at] {
+		path = append(path, at)
+		if at == startID {
 			break
 		}
 	}
-	// Build and return path
-	if found {
-		fmt.Println("Path found between", start.Name, "and", target.Name)
-		path, songs := h.ReconstructPathIDs(start.ID, target.ID)
-		return h, path, songs, true
+	// reverse
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
 	}
-
-	fmt.Println("No path found between", start.Name, "and", target.Name)
-	return h, nil, nil, false
+	if len(path) == 0 || path[0] != startID {
+		return nil
+	}
+	return path
 }

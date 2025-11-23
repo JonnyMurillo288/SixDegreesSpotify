@@ -1,0 +1,48 @@
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  margin: 2rem;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.btn {
+  padding: .5rem .75rem;
+  background: #000;
+  color: #fff;
+  border-radius: 6px;
+  text-decoration: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .75rem;
+}
+
+input[type=text], input[type=number] {
+  width: 100%;
+  padding: .6rem;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+}
+
+#spinner {
+  display: none;
+}
+
+#graph-container {
+  height: 600px;
+  width: 100%;
+  border: 1px solid #ccc;
+  margin-top: 1.5rem;
+  border-radius: 6px;
+}

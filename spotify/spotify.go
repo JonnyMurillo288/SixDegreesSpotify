@@ -87,11 +87,14 @@ func fetchWithRetry(req *http.Request, maxRetries int) ([]byte, int, error) {
 		if status >= 200 && status < 300 {
 			return body, status, nil
 		}
+		if status == 429 {
+			fmt.Println("HTTP STATUS: 429")
+		}
 		if status == http.StatusTooManyRequests {
 			time.Sleep(retryAfterDelay(resp))
 			continue
 		}
-		if status >= 500 {
+		if status >= 5 {
 			time.Sleep(backoffDuration(attempt))
 			continue
 		}
@@ -101,19 +104,19 @@ func fetchWithRetry(req *http.Request, maxRetries int) ([]byte, int, error) {
 }
 
 func retryAfterDelay(resp *http.Response) time.Duration {
-	ra := resp.Header.Get("Retry-After")
-	if ra == "" {
-		return time.Second
-	}
+	// ra := resp.Header.Get("Retry-After")
+	// if ra == "" {
+	// 	return time.Second
+	// }
 
-	if secs, err := strconv.Atoi(ra); err == nil {
-		return time.Duration(secs) * time.Second
-	}
+	// if secs, err := strconv.Atoi(ra); err == nil {
+	// 	return time.Duration(secs) * time.Second
+	// }
 	return time.Second
 }
 
 func backoffDuration(attempt int) time.Duration {
-	base := 500 * time.Millisecond
+	base := 5 * time.Millisecond
 	factor := math.Pow(2, float64(attempt))
 	jitter := time.Duration(rand.Intn(300)) * time.Millisecond
 	return time.Duration(float64(base)*factor) + jitter
@@ -176,14 +179,30 @@ func isExpired(t *Auth) bool {
 }
 
 func launchAuthFlow() error {
-	cmd := exec.Command("go", "run", "./main/auth.go")
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start auth server: %w", err)
+	// Load redirect_url from authConfig
+	data, err := os.ReadFile("./main/authConfig.txt")
+	if err != nil {
+		return fmt.Errorf("failed to read authConfig.txt: %w", err)
 	}
-	log.Println("Auth server started, opening browser…")
-	if err := exec.Command("xdg-open", "http://localhost:8392/").Start(); err != nil {
-		log.Printf("Please open http://localhost:8392/ manually: %v", err)
+
+	var cfg struct {
+		RedirectURL string `json:"redirect_url"`
 	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("failed to parse redirect_url: %w", err)
+	}
+
+	if cfg.RedirectURL == "" {
+		return fmt.Errorf("redirect_url missing in authConfig.txt")
+	}
+
+	log.Println("Opening browser to:", cfg.RedirectURL)
+
+	// Open browser to the redirect URL
+	if err := exec.Command("xdg-open", cfg.RedirectURL).Start(); err != nil {
+		log.Printf("Please open %s manually: %v", cfg.RedirectURL, err)
+	}
+
 	return nil
 }
 
@@ -248,7 +267,7 @@ func ArtistAlbumsAppearsOn(id string, limit int) ([]byte, error) {
 	return out, nil
 }
 
-func ArtistAlbums(id string, limit int) ([]byte, error) {
+func ArtistAlbums(id string, limit int) ([]byte, int, error) {
 	base := fmt.Sprintf("https://api.spotify.com/v1/artists/%s/albums", id)
 	header := getHeader()
 	header["Accept"], header["Content-Type"] = "application/json", "application/json"
@@ -270,10 +289,11 @@ func ArtistAlbums(id string, limit int) ([]byte, error) {
 		}
 		body, status, err := doRequest("GET", base, header, params)
 		if err != nil {
-			return nil, err
+			return nil, status, err
 		}
 		log.Println("Status code for ArtistAlbums:", status)
 		if status == 429 {
+			fmt.Println("HTTP STATUS: 429")
 			time.Sleep(300 * time.Millisecond)
 		}
 		if status < 200 || status >= 300 {
@@ -281,7 +301,7 @@ func ArtistAlbums(id string, limit int) ([]byte, error) {
 		}
 		var page PaginatedItems
 		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, err
+			return nil, status, err
 		}
 		agg = append(agg, page.Items...)
 		if len(agg) >= totalLimit || page.Next == nil || *page.Next == "" || len(page.Items) == 0 {
@@ -292,7 +312,7 @@ func ArtistAlbums(id string, limit int) ([]byte, error) {
 	out, _ := json.Marshal(struct {
 		Items []interface{} `json:"items"`
 	}{agg})
-	return out, nil
+	return out, 200, nil
 }
 
 func GetAlbumTracks(id string) ([]byte, error) {
