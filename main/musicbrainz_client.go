@@ -9,7 +9,7 @@ import (
 )
 
 const mbBaseURL = "https://musicbrainz.org/ws/2"
-const mbUserAgent = "SixDegreeSpotify/1.0 (contact@example.com)"
+const mbUserAgent = "SixDegreeSpotify/1.0 (jonnymurillo288@gmail.com.com)"
 
 // MBClient is a minimal MusicBrainz API client.
 type MBClient struct {
@@ -76,7 +76,7 @@ func (c *MBClient) SearchArtist(name string) ([]mbArtist, error) {
 // ------------
 
 type mbArtistLookup struct {
-	ID        string             `json:"id"`
+	ID        string             `json:"id"` // This is going to be the MusicBrainz ID
 	Name      string             `json:"name"`
 	Relations []mbArtistRelation `json:"relations"`
 }

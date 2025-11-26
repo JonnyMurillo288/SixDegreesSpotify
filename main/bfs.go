@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -15,6 +16,12 @@ func RunSearchOptsBFS(
 	limit *int,
 	offline bool,
 ) (*sixdegrees.Helper, []string, []string, []sixdegrees.Track, int, bool) {
+	s, err := Open("")
+	if err != nil {
+		fmt.Println("Error opening up the database:", err)
+		return nil, nil, nil, nil, 0, false
+	}
+	defer s.Close()
 
 	if start == nil || start.ID == "" || target == nil || target.ID == "" {
 		return nil, nil, nil, nil, 400, false
@@ -34,21 +41,18 @@ func RunSearchOptsBFS(
 	}
 
 	// Limits to prevent runaway searches
-	perArtistLimit := 500
+	perArtistLimit := 5000
 	if limit != nil && *limit > 0 {
 		perArtistLimit = *limit
 	}
-	if perArtistLimit > 2000 {
-		perArtistLimit = 2000
+	if perArtistLimit > 20000 {
+		perArtistLimit = 20000
 	}
 
-	const maxExpandedArtists = 3000
-	const maxSearchDuration = 1600 * time.Second
+	const maxExpandedArtists = 30000
+	const maxSearchDuration = 3000 * time.Second
 
 	startTime := time.Now()
-
-	// MusicBrainz client (per BFS)
-	mbClient := NewMBClient()
 
 	// Helper to store mapping
 	h := sixdegrees.NewHelper()
@@ -97,7 +101,7 @@ func RunSearchOptsBFS(
 
 		expandedCount++
 
-		neighbors, status, err := MusicBrainzNeighborProvider(mbClient, item.A, perArtistLimit, verbose)
+		neighbors, status, err := s.MusicBrainzNeighborProvider(context.Background(), item.A, perArtistLimit, verbose)
 		if status == 429 {
 			if verbose {
 				log.Printf("NeighborProvider rate limited on %s: %v", item.A.Name, err)
@@ -169,6 +173,7 @@ func RunSearchOptsBFS(
 			}
 		}
 	}
+	s.Close()
 
 	if verbose {
 		log.Printf("BFS finished with no path found (expanded %d artists)", expandedCount)

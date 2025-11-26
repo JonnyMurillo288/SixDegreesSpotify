@@ -11,11 +11,12 @@ import (
 )
 
 type Track struct {
-	Artist   *Artists // Primary artist
-	Name     string
-	PhotoURL string
-	ID       string
-	Featured []*Artists // Featured artists
+	Artist    *Artists // Primary artist
+	Name      string
+	PhotoURL  string
+	ID        string
+	Recording string
+	Featured  []*Artists // Featured artists
 }
 
 type trackResponse struct {

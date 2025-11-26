@@ -16,5 +16,6 @@ require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Jonnymurillo288/go-runner v0.0.0-20210919215732-05da596653e3 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
+	github.com/lib/pq v1.10.9
 	golang.org/x/sync v0.18.0
 )

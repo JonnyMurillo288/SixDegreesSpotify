@@ -28,8 +28,9 @@ func SearchArtists(
 	// Resolve START artist
 	// -------------------------
 	startHits, err := mb.SearchArtist(start)
+	x := fmt.Sprint(err)
 	if err != nil || len(startHits) == 0 {
-		return 0, nil, "start artist not found", 404, nil
+		return 0, nil, x, 404, nil
 	}
 	startArtist := &sixdegrees.Artists{
 		ID:   startHits[0].ID,

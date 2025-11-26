@@ -8,15 +8,6 @@ import (
 	"time"
 )
 
-//
-//
-//
-
-type NeighborResult struct {
-	Artist *Artists
-	Track  Track
-}
-
 const baseURL = "https://musicbrainz.org/ws/2"
 const userAgent = "SixDegreeSpotify/1.0 (jonny@example.com)"
 
@@ -138,7 +129,7 @@ func joinIncludes(in []string) string {
 
 func ExtractCollaborators(a *ArtistLookup) []Artist {
 	var out []Artist
-
+	fmt.Println("Here are the relations for:", a.Name)
 	for _, rel := range a.Relations {
 		// Performance, producer, composer, vocal, instrumental, etc
 		if rel.Type == "collaboration" ||
@@ -149,7 +140,7 @@ func ExtractCollaborators(a *ArtistLookup) []Artist {
 			rel.Type == "remixer" ||
 			rel.Type == "member of band" ||
 			rel.Type == "composer" {
-
+			fmt.Printf("Relation for -> %s: %s", rel.Artist.Name, rel.Type)
 			if rel.Artist.ID != "" {
 				out = append(out, Artist{
 					ID:   rel.Artist.ID,
