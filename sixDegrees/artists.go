@@ -7,6 +7,13 @@ import (
 	"github.com/Jonnymurillo288/SixDegreesSpotify/spotify"
 )
 
+// MusicBrainz New Neighbor results
+
+type NeighborResult struct {
+	Artist *Artists
+	Track  Track
+}
+
 // Artists represents one artist node with tracks and metadata.
 type Artists struct {
 	Name                        string

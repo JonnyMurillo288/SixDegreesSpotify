@@ -9,7 +9,6 @@ import (
 )
 
 func RunSearchOptsBFS(
-	store *Store,
 	start, target *sixdegrees.Artists,
 	maxDepth int,
 	verbose bool,
@@ -29,24 +28,27 @@ func RunSearchOptsBFS(
 	}
 
 	if verbose {
-		fmt.Println("=== Starting DIRECT BFS over NeighborProvider ===")
+		fmt.Println("=== Starting BFS over MusicBrainz relations ===")
 		fmt.Printf("Start:  %s (%s)\n", start.Name, start.ID)
 		fmt.Printf("Target: %s (%s)\n", target.Name, target.ID)
 	}
 
 	// Limits to prevent runaway searches
-	perArtistLimit := 10
+	perArtistLimit := 500
 	if limit != nil && *limit > 0 {
 		perArtistLimit = *limit
 	}
-	if perArtistLimit > 20 {
-		perArtistLimit = 20
+	if perArtistLimit > 2000 {
+		perArtistLimit = 2000
 	}
 
-	const maxExpandedArtists = 300
-	const maxSearchDuration = 30 * time.Second
+	const maxExpandedArtists = 3000
+	const maxSearchDuration = 1600 * time.Second
 
 	startTime := time.Now()
+
+	// MusicBrainz client (per BFS)
+	mbClient := NewMBClient()
 
 	// Helper to store mapping
 	h := sixdegrees.NewHelper()
@@ -95,7 +97,7 @@ func RunSearchOptsBFS(
 
 		expandedCount++
 
-		neighbors, status, err := store.NeighborProvider(item.A, perArtistLimit, verbose)
+		neighbors, status, err := MusicBrainzNeighborProvider(mbClient, item.A, perArtistLimit, verbose)
 		if status == 429 {
 			if verbose {
 				log.Printf("NeighborProvider rate limited on %s: %v", item.A.Name, err)

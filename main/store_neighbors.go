@@ -1,188 +1,178 @@
 package main
 
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"log"
-	"time"
+// // ExpandNeighbors
+// // --------------------------------------------------------------
+// // This is the refactored “neighbor extraction” function.
+// //
+// // It replaces your old `enrichArtist`.
+// // It does NOT do BFS or search logic. It ONLY:
+// //
+// //  1. Loads tracks/albums from DB (fast path)
+// //  2. Fetches missing albums/tracks from API (slow path)
+// //  3. Creates Track objects
+// //  4. Writes all DB data (upserts)
+// //  5. Extracts featured collaborators
+// //  6. Returns a slice of collaborating artists (neighbors)
+// //
+// // This is fully compatible with GraphBuilder.
+// func (s *Store) ExpandNeighbors(
+// 	a *sixdegrees.Artists,
+// 	limit int,
+// 	verbose bool,
+// ) ([]*NeighborEdge, error) {
+// 	edges := make([]*NeighborEdge, 0, limit)
 
-	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
-)
+// 	ctx := context.Background()
+// 	neighbors := []*sixdegrees.Artists{}
 
-// ExpandNeighbors
-// --------------------------------------------------------------
-// This is the refactored “neighbor extraction” function.
-//
-// It replaces your old `enrichArtist`.
-// It does NOT do BFS or search logic. It ONLY:
-//
-//  1. Loads tracks/albums from DB (fast path)
-//  2. Fetches missing albums/tracks from API (slow path)
-//  3. Creates Track objects
-//  4. Writes all DB data (upserts)
-//  5. Extracts featured collaborators
-//  6. Returns a slice of collaborating artists (neighbors)
-//
-// This is fully compatible with GraphBuilder.
-func (s *Store) ExpandNeighbors(
-	a *sixdegrees.Artists,
-	limit int,
-	verbose bool,
-) ([]*NeighborEdge, error) {
-	edges := make([]*NeighborEdge, 0, limit)
+// 	if verbose {
+// 		fmt.Printf("\n=== Expanding neighbors for %s (%s) ===\n", a.Name, a.ID)
+// 	}
 
-	ctx := context.Background()
-	neighbors := []*sixdegrees.Artists{}
+// 	// SAFETY: enforce reasonable default
+// 	if limit <= 0 {
+// 		limit = 15
+// 	}
 
-	if verbose {
-		fmt.Printf("\n=== Expanding neighbors for %s (%s) ===\n", a.Name, a.ID)
-	}
+// 	// ---------------------------------------------------------
+// 	// 1) TRACKS FROM DB (fast path)
+// 	// ---------------------------------------------------------
+// 	dbTracks, err := s.ListTracksByArtistID(ctx, a.ID, 1e6)
+// 	if err == nil && len(dbTracks) > 0 {
+// 		tracks, _ := s.DBTracksToTracks(dbTracks)
+// 		a.Tracks = append(a.Tracks, tracks...)
+// 		if verbose {
+// 			log.Printf("    Loaded %d DB tracks for %s", len(tracks), a.Name)
+// 		}
+// 	}
 
-	// SAFETY: enforce reasonable default
-	if limit <= 0 {
-		limit = 15
-	}
+// 	// ---------------------------------------------------------
+// 	// 2) Get Albums (DB-first → API remainder)
+// 	// ---------------------------------------------------------
+// 	albums, _, err := s.getArtistAlbumsMergedCached(a.ID, limit, false, verbose)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("ExpandNeighbors: failed to load albums: %w", err)
+// 	}
 
-	// ---------------------------------------------------------
-	// 1) TRACKS FROM DB (fast path)
-	// ---------------------------------------------------------
-	dbTracks, err := s.ListTracksByArtistID(ctx, a.ID, 1e6)
-	if err == nil && len(dbTracks) > 0 {
-		tracks, _ := s.DBTracksToTracks(dbTracks)
-		a.Tracks = append(a.Tracks, tracks...)
-		if verbose {
-			log.Printf("    Loaded %d DB tracks for %s", len(tracks), a.Name)
-		}
-	}
+// 	if verbose {
+// 		log.Printf("    Found %d merged albums for %s\n", len(albums.Items), a.Name)
+// 	}
 
-	// ---------------------------------------------------------
-	// 2) Get Albums (DB-first → API remainder)
-	// ---------------------------------------------------------
-	albums, _, err := s.getArtistAlbumsMergedCached(a.ID, limit, false, verbose)
-	if err != nil {
-		return nil, fmt.Errorf("ExpandNeighbors: failed to load albums: %w", err)
-	}
+// 	// ---------------------------------------------------------
+// 	// 3) For each album → fetch tracks, create collaboration edges
+// 	// ---------------------------------------------------------
+// 	for _, al := range albums.Items {
 
-	if verbose {
-		log.Printf("    Found %d merged albums for %s\n", len(albums.Items), a.Name)
-	}
+// 		// Upsert album
+// 		_ = s.UpsertAlbum(ctx, DBAlbum{
+// 			ID:              al.ID,
+// 			PrimaryArtistID: sqlNullString(a.ID),
+// 		})
 
-	// ---------------------------------------------------------
-	// 3) For each album → fetch tracks, create collaboration edges
-	// ---------------------------------------------------------
-	for _, al := range albums.Items {
+// 		// Record album artists
+// 		for _, art := range al.Artists {
+// 			_ = s.UpsertArtist(ctx, DBArtist{Name: art.Name})
+// 			_ = s.AddAlbumArtist(ctx, al.ID, art.Name)
+// 		}
 
-		// Upsert album
-		_ = s.UpsertAlbum(ctx, DBAlbum{
-			ID:              al.ID,
-			PrimaryArtistID: sqlNullString(a.ID),
-		})
+// 		// -----------------------------------------------------
+// 		// 3a. Fetch tracks for the album (DB-first + API remainder)
+// 		// -----------------------------------------------------
+// 		trackBody, err := s.fetchAlbumTracksCached(a, al.ID, limit, false, verbose)
+// 		if err != nil {
+// 			continue
+// 		}
 
-		// Record album artists
-		for _, art := range al.Artists {
-			_ = s.UpsertArtist(ctx, DBArtist{Name: art.Name})
-			_ = s.AddAlbumArtist(ctx, al.ID, art.Name)
-		}
+// 		// Convert API/DB response to Track struct
+// 		j, _ := json.Marshal(trackBody)
+// 		tracks, _ := a.CreateTracks(j, nil)
 
-		// -----------------------------------------------------
-		// 3a. Fetch tracks for the album (DB-first + API remainder)
-		// -----------------------------------------------------
-		trackBody, err := s.fetchAlbumTracksCached(a, al.ID, limit, false, verbose)
-		if err != nil {
-			continue
-		}
+// 		if len(tracks) == 0 {
+// 			continue
+// 		}
 
-		// Convert API/DB response to Track struct
-		j, _ := json.Marshal(trackBody)
-		tracks, _ := a.CreateTracks(j, nil)
+// 		for _, t := range tracks {
 
-		if len(tracks) == 0 {
-			continue
-		}
+// 			// -------------------------------------------------
+// 			//  IMPORTANT: Only process tracks where THIS artist appears
+// 			// -------------------------------------------------
+// 			if !trackHasArtist(t, a) {
+// 				continue
+// 			}
 
-		for _, t := range tracks {
+// 			// Upsert track into DB
+// 			_ = s.UpsertTrack(ctx, createDBTrack(t, al.ID))
 
-			// -------------------------------------------------
-			//  IMPORTANT: Only process tracks where THIS artist appears
-			// -------------------------------------------------
-			if !trackHasArtist(t, a) {
-				continue
-			}
+// 			// Upsert primary artist
+// 			if t.Artist != nil && t.Artist.ID != "" {
+// 				_ = s.UpsertArtist(ctx, createDBArtist(*t.Artist))
+// 				_ = s.AddTrackArtist(ctx, t.ID, t.Artist.ID, "primary")
+// 			}
 
-			// Upsert track into DB
-			_ = s.UpsertTrack(ctx, createDBTrack(t, al.ID))
+// 			// -------------------------------------------------
+// 			// FEATURED ARTISTS = graph edges = neighbors
+// 			// -------------------------------------------------
+// 			for _, f := range t.Featured {
+// 				if f == nil || f.ID == "" {
+// 					continue
+// 				}
 
-			// Upsert primary artist
-			if t.Artist != nil && t.Artist.ID != "" {
-				_ = s.UpsertArtist(ctx, createDBArtist(*t.Artist))
-				_ = s.AddTrackArtist(ctx, t.ID, t.Artist.ID, "primary")
-			}
+// 				// DB writes
+// 				_ = s.UpsertArtist(ctx, createDBArtist(*f))
+// 				_ = s.AddTrackArtist(ctx, t.ID, f.ID, "featured")
 
-			// -------------------------------------------------
-			// FEATURED ARTISTS = graph edges = neighbors
-			// -------------------------------------------------
-			for _, f := range t.Featured {
-				if f == nil || f.ID == "" {
-					continue
-				}
+// 				neighbors = append(neighbors, f)
+// 				edges = append(edges, &NeighborEdge{
+// 					Artist: f, // <-- the featured collaborator
+// 					Track:  t, // <-- the connecting track
+// 				})
+// 			}
+// 		}
+// 	}
 
-				// DB writes
-				_ = s.UpsertArtist(ctx, createDBArtist(*f))
-				_ = s.AddTrackArtist(ctx, t.ID, f.ID, "featured")
+// 	// Avoid rate-limit cascades
+// 	time.Sleep(10 * time.Millisecond)
 
-				neighbors = append(neighbors, f)
-				edges = append(edges, &NeighborEdge{
-					Artist: f, // <-- the featured collaborator
-					Track:  t, // <-- the connecting track
-				})
-			}
-		}
-	}
+// 	return dedupeArtists(edges), nil
+// }
 
-	// Avoid rate-limit cascades
-	time.Sleep(10 * time.Millisecond)
+// // -------------------------------------------------------
+// // Helper: check if a track contains the main artist
+// // -------------------------------------------------------
 
-	return dedupeArtists(edges), nil
-}
+// func trackHasArtist(t sixdegrees.Track, a *sixdegrees.Artists) bool {
+// 	// primary
+// 	if t.Artist != nil && t.Artist.ID == a.ID {
+// 		return true
+// 	}
 
-// -------------------------------------------------------
-// Helper: check if a track contains the main artist
-// -------------------------------------------------------
+// 	// featured
+// 	for _, f := range t.Featured {
+// 		if f != nil && f.ID == a.ID {
+// 			return true
+// 		}
+// 	}
 
-func trackHasArtist(t sixdegrees.Track, a *sixdegrees.Artists) bool {
-	// primary
-	if t.Artist != nil && t.Artist.ID == a.ID {
-		return true
-	}
+// 	return false
+// }
 
-	// featured
-	for _, f := range t.Featured {
-		if f != nil && f.ID == a.ID {
-			return true
-		}
-	}
+// // -------------------------------------------------------
+// // Helper: deduplicate neighbor list
+// // -------------------------------------------------------
 
-	return false
-}
+// func dedupeArtists(in []*NeighborEdge) []*NeighborEdge {
+// 	out := make([]*NeighborEdge, 0, len(in))
+// 	seen := map[string]bool{}
 
-// -------------------------------------------------------
-// Helper: deduplicate neighbor list
-// -------------------------------------------------------
+// 	for _, a := range in {
+// 		if a.Artist == nil || a.Artist.ID == "" {
+// 			continue
+// 		}
+// 		if !seen[a.Artist.ID] {
+// 			seen[a.Artist.ID] = true
+// 			out = append(out, a)
+// 		}
+// 	}
 
-func dedupeArtists(in []*NeighborEdge) []*NeighborEdge {
-	out := make([]*NeighborEdge, 0, len(in))
-	seen := map[string]bool{}
-
-	for _, a := range in {
-		if a.Artist == nil || a.Artist.ID == "" {
-			continue
-		}
-		if !seen[a.Artist.ID] {
-			seen[a.Artist.ID] = true
-			out = append(out, a)
-		}
-	}
-
-	return out
-}
+// 	return out
+// }

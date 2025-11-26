@@ -69,7 +69,7 @@ func (gb *GraphBuilder) BuildFrom(
 
 		neighbors, status, err := gb.NeighborFn(item.Artist, perArtistLimit, verbose)
 		if status == 429 {
-			return nil, fmt.Errorf("Spotify rate limit during graph build")
+			return nil, fmt.Errorf("external rate limit during graph build")
 		}
 		if err != nil {
 			return nil, fmt.Errorf("NeighborProvider failed for %s: %w",
@@ -177,6 +177,7 @@ func BFSOnGraph(
 
 	return nil, nil, false // no path
 }
+
 func reconstructPathWithTracks(
 	prev map[string]string,
 	trackTo map[string]sixdegrees.Track,

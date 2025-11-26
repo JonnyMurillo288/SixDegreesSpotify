@@ -1,110 +1,57 @@
 package main
 
 import (
-	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
 	sixdegrees "github.com/Jonnymurillo288/SixDegreesSpotify/sixDegrees"
 )
 
-// SearchArtists runs the full pipeline to compute a collaboration path between two artists.
+// SearchArtists runs the full pipeline to compute a collaboration path between two artists,
+// using MusicBrainz for both artist resolution and neighbor expansion.
 func SearchArtists(
 	start, target string,
 	depth, limit int,
 	offline bool,
 ) (int, []struct{ From, Track, To, TrackID, TrackURL string }, string, int, error) {
 
-	store, err := Open("")
-	if err != nil {
-		return 1, nil, "", 500, fmt.Errorf("failed to open store: %w", err)
-	}
-	defer store.Close()
-
-	if err := store.Migrate(context.Background()); err != nil {
-		return 1, nil, "", 500, fmt.Errorf("failed to migrate store: %w", err)
-	}
-
 	if start == "" || target == "" {
 		return 0, nil, "start or target empty", 400, nil
 	}
 
+	mb := NewMBClient()
 	verbose := true
 	startTime := time.Now().UTC().Unix()
 
-	var (
-		startArtist  *sixdegrees.Artists
-		targetArtist *sixdegrees.Artists
-		gotArtist    bool
-	)
-
-	// ---- Resolve START artist (DB first, then Spotify) ----
-	gotArtist = false
-	if !offline {
-		if dba, err := store.FindArtistByName(context.Background(), start); err == nil {
-			gotArtist = true
-			fmt.Printf("startArtistDBA (DB): %s\n", dba.Name)
-			startArtist = sixdegrees.CreateArtists(dba.Name, dba.ID)
-		}
+	// -------------------------
+	// Resolve START artist
+	// -------------------------
+	startHits, err := mb.SearchArtist(start)
+	if err != nil || len(startHits) == 0 {
+		return 0, nil, "start artist not found", 404, nil
 	}
-	if !gotArtist {
-		fmt.Printf("Fetching start artist %q from Spotify API\n", start)
-		startArtist = sixdegrees.InputArtist(start)
-		if startArtist == nil || startArtist.ID == "" {
-			return 0, nil, "start artist not found", 404, nil
-		}
-		dba := DBArtist{
-			ID:         startArtist.ID,
-			Name:       startArtist.Name,
-			Popularity: sql.NullInt64{Int64: int64(startArtist.Popularity), Valid: startArtist.Popularity > 0},
-			Genres:     startArtist.Genres,
-		}
-		if err := store.UpsertArtist(context.Background(), dba); err != nil {
-			return 1, nil, "", 500, fmt.Errorf("upsert start artist failed: %w", err)
-		}
+	startArtist := &sixdegrees.Artists{
+		ID:   startHits[0].ID,
+		Name: startHits[0].Name,
 	}
 
-	// ---- Resolve TARGET artist (DB first, then Spotify) ----
-	gotArtist = false
-	if !offline {
-		if dba, err := store.FindArtistByName(context.Background(), target); err == nil {
-			gotArtist = true
-			fmt.Printf("targetArtistDBA (DB): %s\n", dba.Name)
-			targetArtist = sixdegrees.CreateArtists(dba.Name, dba.ID)
-		}
+	// -------------------------
+	// Resolve TARGET artist
+	// -------------------------
+	targetHits, err := mb.SearchArtist(target)
+	if err != nil || len(targetHits) == 0 {
+		return 0, nil, "target artist not found", 404, nil
 	}
-	if !gotArtist {
-		fmt.Printf("Fetching target artist %q from Spotify API\n", target)
-		targetArtist = sixdegrees.InputArtist(target)
-		if targetArtist == nil || targetArtist.ID == "" {
-			return 0, nil, "target artist not found", 404, nil
-		}
-		dba := DBArtist{
-			ID:         targetArtist.ID,
-			Name:       targetArtist.Name,
-			Popularity: sql.NullInt64{Int64: int64(targetArtist.Popularity), Valid: targetArtist.Popularity > 0},
-			Genres:     targetArtist.Genres,
-		}
-		if err := store.UpsertArtist(context.Background(), dba); err != nil {
-			return 1, nil, "", 500, fmt.Errorf("upsert target artist failed: %w", err)
-		}
+	targetArtist := &sixdegrees.Artists{
+		ID:   targetHits[0].ID,
+		Name: targetHits[0].Name,
 	}
 
-	// Swap if needed (start is more popular than target)
-	switchingArtist := false
-	if startArtist.Popularity > targetArtist.Popularity {
-		switchingArtist = true
-		startArtist, targetArtist = targetArtist, startArtist
-	}
-
-	fmt.Println("Running BFS Search...")
+	fmt.Printf("Running MusicBrainz BFS Search from %q to %q...\n",
+		startArtist.Name, targetArtist.Name)
 
 	helper, pathNames, pathIDs, tracks, status, ok := RunSearchOptsBFS(
-		store,
 		startArtist,
 		targetArtist,
 		depth,
@@ -114,7 +61,7 @@ func SearchArtists(
 	)
 
 	if status == 429 {
-		return 0, nil, "", 429, fmt.Errorf("error 429: reached spotify rate limit")
+		return 0, nil, "", 429, fmt.Errorf("error 429: reached external rate limit")
 	}
 	if !ok || len(pathIDs) == 0 {
 		msg := fmt.Sprintf("no path found between %q and %q", startArtist.Name, targetArtist.Name)
@@ -123,22 +70,6 @@ func SearchArtists(
 		}
 		fmt.Println(msg)
 		return 0, nil, msg, 404, nil
-	}
-
-	// If we swapped start/target, reverse everything.
-	if switchingArtist {
-		// reverse names
-		for i, j := 0, len(pathNames)-1; i < j; i, j = i+1, j-1 {
-			pathNames[i], pathNames[j] = pathNames[j], pathNames[i]
-		}
-		// reverse IDs
-		for i, j := 0, len(pathIDs)-1; i < j; i, j = i+1, j-1 {
-			pathIDs[i], pathIDs[j] = pathIDs[j], pathIDs[i]
-		}
-		// reverse tracks
-		for i, j := 0, len(tracks)-1; i < j; i, j = i+1, j-1 {
-			tracks[i], tracks[j] = tracks[j], tracks[i]
-		}
 	}
 
 	fmt.Printf("Path found between %q and %q (%d hops):\n\n",
@@ -168,7 +99,7 @@ func SearchArtists(
 
 		trackID := t.ID
 		trackName := t.Name
-		trackURL := t.PhotoURL // adjust if your Track struct uses another field
+		trackURL := t.PhotoURL // may be empty in MB-only mode
 
 		steps = append(steps, struct {
 			From     string
@@ -199,19 +130,6 @@ func SearchArtists(
 	}
 
 	helper.PrintPath(pathIDs, edges)
-
-	// optional: write track IDs to file
-	var results []string
-	for _, t := range tracks {
-		if t.ID != "" {
-			results = append(results, t.ID)
-		}
-	}
-	if len(results) > 0 {
-		if b, err := json.Marshal(results); err == nil {
-			_ = os.WriteFile("results/results.json", b, 0o644)
-		}
-	}
 
 	endTime := time.Now().UTC().Unix()
 	fmt.Printf("Analysis took %s seconds\n", strconv.FormatInt(endTime-startTime, 10))
