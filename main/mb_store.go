@@ -25,7 +25,8 @@ func Open(dsn string) (*Store, error) {
 	if dsn == "" {
 		dsn = os.Getenv("PG_DSN")
 		if dsn == "" {
-			dsn = "postgres://mbuser:changeme123@localhost:5432/musicbrainz?sslmode=disable"
+			dsn = "postgres://postgres:baseball162162@localhost:5432/musicbrainz_db?sslmode=disable"
+
 		}
 	}
 
@@ -96,34 +97,34 @@ func (s *Store) GetArtistTracks(
 	var result MBRecordingSearchDB
 
 	q := `
-WITH target AS (
-    SELECT id FROM artist WHERE gid = $1
-),
-tracks AS (
-    SELECT
-        r.id                      AS recording_id,
-        r.gid::text              AS recording_mbid,
-        r.name                   AS recording_name,
-        t.gid::text              AS track_mbid,
-        t.name                   AS track_name,
-        rls.gid::text            AS release_mbid
-    FROM recording r
-    JOIN track t                 ON t.recording = r.id
-    JOIN medium m                ON m.id = t.medium
-    JOIN release rls             ON rls.id = m.release
-    JOIN artist_credit ac        ON ac.id = r.artist_credit
-    JOIN artist_credit_name acn  ON acn.artist_credit = ac.id
-    JOIN target ta               ON acn.artist = ta.id
-    LIMIT $2
-)
-SELECT
-    recording_mbid,
-    recording_name,
-    track_mbid,
-    track_name,
-    'https://coverartarchive.org/release/' || release_mbid || '/front' AS cover_url
-FROM tracks;
-`
+		WITH target AS (
+			SELECT id FROM artist WHERE gid = $1
+		),
+		tracks AS (
+			SELECT
+				r.id                      AS recording_id,
+				r.gid::text              AS recording_mbid,
+				r.name                   AS recording_name,
+				t.gid::text              AS track_mbid,
+				t.name                   AS track_name,
+				rls.gid::text            AS release_mbid
+			FROM recording r
+			JOIN track t                 ON t.recording = r.id
+			JOIN medium m                ON m.id = t.medium
+			JOIN release rls             ON rls.id = m.release
+			JOIN artist_credit ac        ON ac.id = r.artist_credit
+			JOIN artist_credit_name acn  ON acn.artist_credit = ac.id
+			JOIN target ta               ON acn.artist = ta.id
+			LIMIT $2
+		)
+		SELECT
+			recording_mbid,
+			recording_name,
+			track_mbid,
+			track_name,
+			'https://coverartarchive.org/release/' || release_mbid || '/front' AS cover_url
+		FROM tracks;
+		`
 
 	rows, err := s.DB.QueryContext(ctx, q, mbid, limit)
 	if err != nil {
@@ -165,13 +166,13 @@ FROM tracks;
 
 func (s *Store) getRecordingCredits(ctx context.Context, recordingMBID string) ([]DBArtistCredit, error) {
 	q := `
-SELECT a.gid::text, a.name
-FROM recording r
-JOIN artist_credit ac        ON ac.id = r.artist_credit
-JOIN artist_credit_name acn  ON acn.artist_credit = ac.id
-JOIN artist a               ON a.id = acn.artist
-WHERE r.gid = $1;
-`
+		SELECT a.gid::text, a.name
+		FROM recording r
+		JOIN artist_credit ac        ON ac.id = r.artist_credit
+		JOIN artist_credit_name acn  ON acn.artist_credit = ac.id
+		JOIN artist a               ON a.id = acn.artist
+		WHERE r.gid = $1;
+		`
 	rows, err := s.DB.QueryContext(ctx, q, recordingMBID)
 	if err != nil {
 		return nil, err

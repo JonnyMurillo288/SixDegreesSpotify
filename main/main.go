@@ -147,7 +147,7 @@ func main() {
 			req.Depth = -1
 		}
 
-		limit := 10
+		limit := 1200
 
 		hops, stepsList, message, status, err := SearchArtists(
 			req.Start, req.Target, req.Depth, limit, false,

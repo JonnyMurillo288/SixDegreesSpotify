@@ -100,7 +100,7 @@ func RunSearchOptsBFS(
 		}
 
 		expandedCount++
-
+		// fmt.Println("Number of Limit", perArtistLimit)
 		neighbors, status, err := s.MusicBrainzNeighborProvider(context.Background(), item.A, perArtistLimit, verbose)
 		if status == 429 {
 			if verbose {

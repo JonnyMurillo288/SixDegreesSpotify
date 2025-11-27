@@ -50,96 +50,90 @@ func (s *Store) MusicBrainzNeighborProvider(
 		return nil, 400, fmt.Errorf("artist missing MBID")
 	}
 	if limit <= 0 {
-		limit = 50
+		limit = 200
 	}
 
 	if verbose {
-		fmt.Printf("\n=== Artist-Relation Neighbors for %s (%s) ===\n", a.Name, a.ID)
+		fmt.Printf("\n=== Track-Based Neighbors for %s (%s) ===\n", a.Name, a.ID)
 	}
 
 	// ---------------------------------------------------------
-	// 1. Lookup internal ID
+	// 1. Lookup internal MB artist ID
 	// ---------------------------------------------------------
-
 	var internalID int
-	if err := s.DB.QueryRowContext(ctx,
+	err := s.DB.QueryRowContext(ctx,
 		`SELECT id FROM artist WHERE gid = $1`, a.ID,
-	).Scan(&internalID); err != nil {
+	).Scan(&internalID)
+	if err != nil {
 		return nil, 500, fmt.Errorf("artist lookup failed: %w", err)
 	}
 
 	// ---------------------------------------------------------
-	// 2. Get direct neighbor artists (l_artist_artist)
+	// 2. Fetch all artists who appear on ANY track with A
 	// ---------------------------------------------------------
-
 	q := `
-        SELECT 
+        WITH target AS (SELECT id FROM artist WHERE gid = $1)
+
+        SELECT DISTINCT
             a2.gid::text AS mbid,
             a2.name,
-            lt.name AS link_type
-        FROM l_artist_artist laa
-        JOIN artist a1 ON laa.entity0 = a1.id
-        JOIN artist a2 ON laa.entity1 = a2.id
-        JOIN link l ON laa.link = l.id
-        JOIN link_type lt ON l.link_type = lt.id
-        WHERE a1.id = $1
-
-        UNION ALL
-
-        SELECT 
-            a1.gid::text AS mbid,
-            a1.name,
-            lt.name AS link_type
-        FROM l_artist_artist laa
-        JOIN artist a1 ON laa.entity0 = a1.id
-        JOIN artist a2 ON laa.entity1 = a2.id
-        JOIN link l ON laa.link = l.id
-        JOIN link_type lt ON l.link_type = lt.id
-        WHERE a2.id = $1
-
+            r.gid::text AS recording_mbid,
+            r.name      AS recording_name,
+            t.gid::text AS track_mbid,
+            t.name      AS track_name,
+            rls.gid::text AS release_mbid
+        FROM track t
+        JOIN recording r              ON r.id = t.recording
+        JOIN medium m                 ON m.id = t.medium
+        JOIN release rls              ON rls.id = m.release
+        JOIN artist_credit ac         ON ac.id = t.artist_credit
+        JOIN artist_credit_name acn1  ON acn1.artist_credit = ac.id
+        JOIN artist_credit_name acn2  ON acn2.artist_credit = ac.id
+        JOIN target ta                ON acn1.artist = ta.id
+        JOIN artist a2                ON a2.id = acn2.artist
+        WHERE acn2.artist != ta.id
         LIMIT $2;
     `
 
-	rows, err := s.DB.QueryContext(ctx, q, internalID, limit)
+	rows, err := s.DB.QueryContext(ctx, q, a.ID, limit)
 	if err != nil {
-		return nil, 500, fmt.Errorf("relationship lookup failed: %w", err)
+		return nil, 500, fmt.Errorf("track-collab lookup failed: %w", err)
 	}
 	defer rows.Close()
 
 	results := []*NeighborEdge{}
-	seen := map[string]bool{}
 
-	// ---------------------------------------------------------
-	// 3. For each neighbor, get the shared track
-	// ---------------------------------------------------------
 	for rows.Next() {
-		var mbid, name, linkType string
-		if err := rows.Scan(&mbid, &name, &linkType); err != nil {
-			return nil, 500, err
-		}
-		if seen[mbid] {
-			continue
-		}
-		seen[mbid] = true
+		var mbid, nbName string
+		var recMBID, recName, trackMBID, trackName, releaseMBID string
 
-		// Lookup shared track
-		tr, err := s.getSharedTrack(ctx, a.ID, mbid)
+		err := rows.Scan(
+			&mbid, &nbName,
+			&recMBID, &recName,
+			&trackMBID, &trackName,
+			&releaseMBID,
+		)
 		if err != nil {
-			continue // skip if no shared track found
+			return nil, 500, err
 		}
 
 		results = append(results, &NeighborEdge{
 			Artist: &sixdegrees.Artists{
 				ID:   mbid,
-				Name: name,
+				Name: nbName,
 			},
-			Track: tr,
-			Link:  linkType,
+			Track: sixdegrees.Track{
+				ID:        trackMBID,
+				Name:      trackName,
+				Recording: recMBID,
+				PhotoURL:  "https://coverartarchive.org/release/" + releaseMBID + "/front",
+			},
+			Link: "track-collaboration",
 		})
+	}
 
-		if len(results) >= limit {
-			break
-		}
+	if verbose {
+		fmt.Printf("Found %d track-based neighbors.\n", len(results))
 	}
 
 	return results, 200, nil
@@ -156,13 +150,13 @@ func (s *Store) getSharedTrack(ctx context.Context, aMBID, bMBID string) (sixdeg
             t.gid::text  AS track_mbid,
             t.name       AS track_name,
             rls.gid::text AS release_mbid
-        FROM recording r
-        JOIN track t              ON t.recording = r.id
-        JOIN medium m             ON m.id = t.medium
-        JOIN release rls          ON rls.id = m.release
-        JOIN artist_credit ac         ON ac.id = r.artist_credit
-        JOIN artist_credit_name acn1  ON acn1.artist_credit = ac.id
-        JOIN artist_credit_name acn2  ON acn2.artist_credit = ac.id
+        FROM track t
+        JOIN recording r           ON r.id = t.recording
+        JOIN medium m              ON m.id = t.medium
+        JOIN release rls           ON rls.id = m.release
+        JOIN artist_credit ac      ON ac.id = t.artist_credit
+        JOIN artist_credit_name acn1 ON acn1.artist_credit = ac.id
+        JOIN artist_credit_name acn2 ON acn2.artist_credit = ac.id
         JOIN a1 ON acn1.artist = a1.id
         JOIN a2 ON acn2.artist = a2.id
         LIMIT 1;
