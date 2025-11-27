@@ -25,7 +25,7 @@ func Open(dsn string) (*Store, error) {
 	if dsn == "" {
 		dsn = os.Getenv("PG_DSN")
 		if dsn == "" {
-			dsn = "postgres://postgres:password@localhost:5432/musicbrainz?sslmode=disable"
+			dsn = "postgres://mbuser:changeme123@localhost:5432/musicbrainz?sslmode=disable"
 		}
 	}
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -138,43 +137,43 @@ func tokenValid(path string) (*spotify.Auth, bool) {
 // Name string
 // AlbumID nullString
 // PrimaryArtistID nullstring
-func (store *Store) DBTracksToTracks(tracks []DBTrack) ([]sixdegrees.Track, error) {
-	var res []sixdegrees.Track
-	var t sixdegrees.Track
-	var f []*sixdegrees.Artists
+// func (store *Store) DBTracksToTracks(tracks []DBTrack) ([]sixdegrees.Track, error) {
+// 	var res []sixdegrees.Track
+// 	var t sixdegrees.Track
+// 	var f []*sixdegrees.Artists
 
-	for _, track := range tracks {
-		art, err := store.GetArtistByID(context.Background(), track.PrimaryArtistID.String)
-		a := sixdegrees.CreateArtists(art.Name, art.ID)
-		if err != nil {
-			fmt.Println("DBTracksToTracks: Error with getting artist ID")
-			return nil, fmt.Errorf("error with dbtracks to tracks: %s & %s", art.Name, art.ID)
-		}
-		feat, err := store.ListFeaturedArtistsForTrack(context.Background(), track.ID)
-		for _, fe := range feat {
-			if a.Name == fe.Name {
-				continue
-			}
-			// fmt.Printf("Artist: %s\nFeatured: %s\n", a.Name, fe.Name)
-			featArt := sixdegrees.CreateArtists(fe.Name, fe.ID)
-			f = append(f, featArt)
-		}
-		if err != nil {
-			fmt.Println("DBTracksToTracks: Error with getting artist ID")
-			return nil, fmt.Errorf("error with dbtracks to tracks")
-		}
+// 	for _, track := range tracks {
+// 		art, err := store.GetArtistByID(context.Background(), track.PrimaryArtistID.String)
+// 		a := sixdegrees.CreateArtists(art.Name, art.ID)
+// 		if err != nil {
+// 			fmt.Println("DBTracksToTracks: Error with getting artist ID")
+// 			return nil, fmt.Errorf("error with dbtracks to tracks: %s & %s", art.Name, art.ID)
+// 		}
+// 		feat, err := store.ListFeaturedArtistsForTrack(context.Background(), track.ID)
+// 		for _, fe := range feat {
+// 			if a.Name == fe.Name {
+// 				continue
+// 			}
+// 			// fmt.Printf("Artist: %s\nFeatured: %s\n", a.Name, fe.Name)
+// 			featArt := sixdegrees.CreateArtists(fe.Name, fe.ID)
+// 			f = append(f, featArt)
+// 		}
+// 		if err != nil {
+// 			fmt.Println("DBTracksToTracks: Error with getting artist ID")
+// 			return nil, fmt.Errorf("error with dbtracks to tracks")
+// 		}
 
-		t = sixdegrees.Track{
-			Artist:   a,
-			Name:     track.Name,
-			ID:       track.ID,
-			Featured: f,
-		}
-		res = append(res, t)
-	}
-	return res, nil
-}
+// 		t = sixdegrees.Track{
+// 			Artist:   a,
+// 			Name:     track.Name,
+// 			ID:       track.ID,
+// 			Featured: f,
+// 		}
+// 		res = append(res, t)
+// 	}
+// 	return res, nil
+// }
 
-// Need a function for offline getting
-// Need a function for online getting
-// Need a function that checks if to do one or other or both
+// // Need a function for offline getting
+// // Need a function for online getting
+// // Need a function that checks if to do one or other or both
