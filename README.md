@@ -45,7 +45,7 @@ Switching to MusicBrainz solved:
 ---
 ## Why This Project Matters (For Recruiters & Engineers)
 
-####This project demonstrates experience in:
+#### This project demonstrates experience in:
 
 - Graph algorithms (BFS, traversal strategies, path reconstruction)
 - Backend engineering in Go
@@ -55,6 +55,24 @@ Switching to MusicBrainz solved:
 - Working with complex real-world data
 - Designing systems for both technical and non-technical users
 - The architecture can scale to cloud deployment using AWS RDS + EC2/Lambda + caching layers.
+
+---
+## Functionailty and Performance to Incorporate
+### Backend
+- Send Postgres to AWS
+  - Connect to AWS DB instead of my internal DB
+- Cache artists
+- Intermediate showings
+
+### Functionality
+- Spotify connection to create a playlist for people
+- Add Photos
+- Add different Connection Types (Producers, etc.)
+- Each node, add their connections from there, just one level for now
+
+### UI
+- Hover over an artist/song for more information
+- Show progress
 
 ---
 
