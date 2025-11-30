@@ -1,6 +1,6 @@
 # SixDegreesSpotify (Now SixDegreesMusicBrainz)
 
-![site image](https://github.com/JonnyMurillo288/SixDegreesSpotify/blob/main/results/Screenshot%20from%202025-11-30%2012-20-01.png)
+![site image](https://github.com/JonnyMurillo288/SixDegreesSpotify/blob/main/results/Site_11_30.png)
 
 SixDegreesSpotify (now running on **MusicBrainz data**) discovers the shortest or weighted relationship path between two musical artists.  
 Given a *start* artist and a *target* artist, the system builds a collaboration graph from MusicBrainz artist-credit relationships and then finds the path using:
