@@ -46,9 +46,8 @@ Switching to MusicBrainz solved:
 - Incorrect or missing intermediary hops
 
 ---
-## Why This Project Matters (For Recruiters & Engineers)
 
-#### This project demonstrates experience in:
+#### This project incorporates:
 
 - Graph algorithms (BFS, traversal strategies, path reconstruction)
 - Backend engineering in Go
@@ -62,19 +61,17 @@ Switching to MusicBrainz solved:
 ---
 ## Functionailty and Performance to Incorporate
 ### Backend
-- Send Postgres to AWS
-  - Connect to AWS DB instead of my internal DB
 - Cache artists
-- Intermediate showings
+- Intermediate graph search showings
 
 ### Functionality
-- Spotify connection to create a playlist for people
-- Add Photos
+- Spotify connection to create a playlist for people ✅
+- Add Photos ✅
 - Add different Connection Types (Producers, etc.)
-- Each node, add their connections from there, just one level for now
+- Each node, add their connections from there, just one level for now ✅
 
 ### UI
-- Hover over an artist/song for more information
+- Hover over an artist/song for more information ✅
 - Show progress
 
 ---
