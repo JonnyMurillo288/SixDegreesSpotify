@@ -1,4 +1,5 @@
 # SixDegreesSpotify (Now SixDegreesMusicBrainz)
+### App Release Date 12/06/2025
 
 ![site image](https://github.com/JonnyMurillo288/SixDegreesSpotify/blob/main/results/Site_11_30.png)
 
