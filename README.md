@@ -1,7 +1,8 @@
 # SixDegreesSpotify (Now SixDegreesMusicBrainz)
-### App Release Date 12/06/2025
+### App Released
+[Link to Site](https://melody-map.com/)
 
-![site image](https://github.com/JonnyMurillo288/SixDegreesSpotify/blob/main/results/Site_11_30.png)
+![site use](https://github.com/JonnyMurillo288/SixDegreesSpotify/blob/main/view.gif)
 
 SixDegreesSpotify (now running on **MusicBrainz data**) discovers the shortest or weighted relationship path between two musical artists.  
 Given a *start* artist and a *target* artist, the system builds a collaboration graph from MusicBrainz artist-credit relationships and then finds the path using:
